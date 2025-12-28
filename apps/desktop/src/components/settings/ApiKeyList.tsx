@@ -38,11 +38,19 @@ import {
 import {
   groqTestIntegration,
   openaiTestIntegration,
+  aldeaTestIntegration,
+  assemblyaiTestIntegration,
+  openrouterTestIntegration,
   TRANSCRIPTION_MODELS,
   GENERATE_TEXT_MODELS,
   OPENAI_TRANSCRIPTION_MODELS,
   OPENAI_GENERATE_TEXT_MODELS,
+  OPENROUTER_FAVORITE_MODELS,
 } from "@repo/voice-ai";
+import {
+  OpenRouterModelPicker,
+  OpenRouterProviderRouting,
+} from "./openrouter";
 
 export type ApiKeyListContext = "transcription" | "post-processing";
 
@@ -59,9 +67,10 @@ type AddApiKeyCardProps = {
     key: string,
   ) => Promise<void>;
   onCancel: () => void;
+  context: ApiKeyListContext;
 };
 
-const AddApiKeyCard = ({ onSave, onCancel }: AddApiKeyCardProps) => {
+const AddApiKeyCard = ({ onSave, onCancel, context }: AddApiKeyCardProps) => {
   const [name, setName] = useState("");
   const [provider, setProvider] = useState<SettingsApiKeyProvider>("groq");
   const [key, setKey] = useState("");
@@ -116,6 +125,12 @@ const AddApiKeyCard = ({ onSave, onCancel }: AddApiKeyCardProps) => {
       >
         <MenuItem value="groq">Groq</MenuItem>
         <MenuItem value="openai">OpenAI</MenuItem>
+        {/* OpenRouter only supports LLM, not transcription */}
+        {context === "post-processing" && (
+          <MenuItem value="openrouter">OpenRouter</MenuItem>
+        )}
+        <MenuItem value="aldea">Aldea</MenuItem>
+        <MenuItem value="assemblyai">AssemblyAI</MenuItem>
       </TextField>
       <TextField
         label={<FormattedMessage defaultMessage="API key" />}
@@ -163,6 +178,12 @@ const testApiKey = async (apiKey: SettingsApiKey): Promise<boolean> => {
       return groqTestIntegration({ apiKey: apiKey.keyFull });
     case "openai":
       return openaiTestIntegration({ apiKey: apiKey.keyFull });
+    case "openrouter":
+      return openrouterTestIntegration({ apiKey: apiKey.keyFull });
+    case "aldea":
+      return aldeaTestIntegration({ apiKey: apiKey.keyFull });
+    case "assemblyai":
+      return assemblyaiTestIntegration({ apiKey: apiKey.keyFull });
     default:
       throw new Error("Testing is not available for this provider.");
   }
@@ -181,6 +202,13 @@ const getModelsForProvider = (
       return context === "transcription"
         ? OPENAI_TRANSCRIPTION_MODELS
         : OPENAI_GENERATE_TEXT_MODELS;
+    case "openrouter":
+      // OpenRouter doesn't support transcription, only post-processing
+      return context === "transcription" ? [] : OPENROUTER_FAVORITE_MODELS;
+    case "aldea":
+      return [];
+    case "assemblyai":
+      return [];
     default:
       return [];
   }
@@ -297,7 +325,21 @@ const ApiKeyCard = ({
           </Tooltip>
         </Stack>
       </Stack>
-      {models.length > 0 ? (
+      {/* OpenRouter gets special model picker and routing UI */}
+      {apiKey.provider === "openrouter" && context === "post-processing" ? (
+        <Box onClick={(e) => e.stopPropagation()}>
+          <OpenRouterModelPicker
+            apiKeyId={apiKey.id}
+            selectedModel={currentModel}
+            onModelSelect={onModelChange}
+            disabled={testing || deleting}
+          />
+          <OpenRouterProviderRouting
+            apiKeyId={apiKey.id}
+            disabled={testing || deleting}
+          />
+        </Box>
+      ) : models.length > 0 ? (
         <FormControl fullWidth size="small">
           <InputLabel id={`model-select-label-${apiKey.id}`}>
             <FormattedMessage defaultMessage="Model" />
@@ -333,7 +375,15 @@ export const ApiKeyList = ({
   onChange,
   context,
 }: ApiKeyListProps) => {
-  const apiKeys = useAppStore((state) => state.settings.apiKeys);
+  const allApiKeys = useAppStore((state) => state.settings.apiKeys);
+
+  // Filter API keys based on context - OpenRouter only supports post-processing
+  const apiKeys = allApiKeys.filter((key) => {
+    if (context === "transcription" && key.provider === "openrouter") {
+      return false;
+    }
+    return true;
+  });
   const status = useAppStore((state) => state.settings.apiKeysStatus);
   const [showAddCard, setShowAddCard] = useState(false);
   const [testingApiKeyId, setTestingApiKeyId] = useState<string | null>(null);
@@ -535,6 +585,7 @@ export const ApiKeyList = ({
         <AddApiKeyCard
           onSave={handleAddApiKey}
           onCancel={() => setShowAddCard(false)}
+          context={context}
         />
       ) : apiKeys.length > 0 || shouldShowError ? (
         <Button

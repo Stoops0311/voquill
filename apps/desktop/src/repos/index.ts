@@ -1,4 +1,5 @@
-import { Nullable } from "@repo/types";
+import { Nullable, OpenRouterProviderRouting } from "@repo/types";
+import { getRec } from "@repo/utilities";
 import { getAppState } from "../store";
 import { OLLAMA_DEFAULT_URL } from "../utils/ollama.utils";
 import {
@@ -15,6 +16,7 @@ import {
   GroqGenerateTextRepo,
   OllamaGenerateTextRepo,
   OpenAIGenerateTextRepo,
+  OpenRouterGenerateTextRepo,
 } from "./generate-text.repo";
 import { BaseHotkeyRepo, LocalHotkeyRepo } from "./hotkey.repo";
 import {
@@ -30,6 +32,7 @@ import {
   GroqTranscribeAudioRepo,
   LocalTranscribeAudioRepo,
   OpenAITranscribeAudioRepo,
+  AldeaTranscribeAudioRepo,
 } from "./transcribe-audio.repo";
 import {
   BaseTranscriptionRepo,
@@ -93,7 +96,8 @@ export type GenerateTextRepoOutput = {
 };
 
 export const getGenerateTextRepo = (): GenerateTextRepoOutput => {
-  const prefs = getGenerativePrefs(getAppState());
+  const state = getAppState();
+  const prefs = getGenerativePrefs(state);
   if (prefs.mode === "cloud") {
     return {
       repo: new CloudGenerateTextRepo(),
@@ -101,16 +105,30 @@ export const getGenerateTextRepo = (): GenerateTextRepoOutput => {
       warnings: prefs.warnings,
     };
   } else if (prefs.mode === "api") {
-    const repo =
-      prefs.provider === "openai"
-        ? new OpenAIGenerateTextRepo(
-            prefs.apiKeyValue,
-            prefs.postProcessingModel,
-          )
-        : new GroqGenerateTextRepo(
-            prefs.apiKeyValue,
-            prefs.postProcessingModel,
-          );
+    let repo: BaseGenerateTextRepo;
+
+    if (prefs.provider === "openrouter") {
+      // Get OpenRouter-specific config from the API key
+      const apiKey = getRec(state.apiKeyById, prefs.apiKeyId);
+      const config = apiKey?.openRouterConfig;
+      const providerRouting = config?.providerRouting ?? undefined;
+      repo = new OpenRouterGenerateTextRepo(
+        prefs.apiKeyValue,
+        prefs.postProcessingModel,
+        providerRouting,
+      );
+    } else if (prefs.provider === "openai") {
+      repo = new OpenAIGenerateTextRepo(
+        prefs.apiKeyValue,
+        prefs.postProcessingModel,
+      );
+    } else {
+      repo = new GroqGenerateTextRepo(
+        prefs.apiKeyValue,
+        prefs.postProcessingModel,
+      );
+    }
+
     return {
       repo,
       apiKeyId: prefs.apiKeyId,
@@ -157,10 +175,12 @@ export const getTranscribeAudioRepo = (): TranscribeAudioRepoOutput => {
             prefs.apiKeyValue,
             prefs.transcriptionModel,
           )
-        : new GroqTranscribeAudioRepo(
-            prefs.apiKeyValue,
-            prefs.transcriptionModel,
-          );
+        : prefs.provider === "aldea"
+          ? new AldeaTranscribeAudioRepo(prefs.apiKeyValue)
+          : new GroqTranscribeAudioRepo(
+              prefs.apiKeyValue,
+              prefs.transcriptionModel,
+            );
     return {
       repo,
       apiKeyId: prefs.apiKeyId,

@@ -1,4 +1,4 @@
-import { Transcription, TranscriptionAudioSnapshot } from "@repo/types";
+import { AppTarget, Transcription, TranscriptionAudioSnapshot } from "@repo/types";
 import { countWords, getRec } from "@repo/utilities";
 import { invoke } from "@tauri-apps/api/core";
 import dayjs from "dayjs";
@@ -38,15 +38,24 @@ import {
   getIsOnboarded,
   getMyEffectiveUserId,
   getMyUser,
+  getTranscriptionPrefs,
 } from "../../utils/user.utils";
 import {
   consumeSurfaceWindowFlag,
   surfaceMainWindow,
 } from "../../utils/window.utils";
+import {
+  startAssemblyAIStreaming,
+  AssemblyAIStreamingSession,
+} from "../../utils/assemblyai-streaming.utils";
 
 type StopRecordingResponse = {
   samples: number[] | Float32Array;
   sampleRate?: number;
+};
+
+type StartRecordingResponse = {
+  sampleRate: number;
 };
 
 type KeysHeldPayload = {
@@ -61,6 +70,11 @@ type RecordingLevelPayload = {
   levels?: number[];
 };
 
+type RecordedAudioResult = {
+  transcript: string | null;
+  currentApp: AppTarget | null;
+};
+
 export const RootSideEffects = () => {
   const startPendingRef = useRef<Promise<void> | null>(null);
   const stopPendingRef = useRef<Promise<StopRecordingResponse | null> | null>(
@@ -69,6 +83,7 @@ export const RootSideEffects = () => {
   const isRecordingRef = useRef(false);
   const suppressUntilRef = useRef(0);
   const overlayLoadingTokenRef = useRef<symbol | null>(null);
+  const assemblyAISessionRef = useRef<AssemblyAIStreamingSession | null>(null);
   const userId = useAppStore((state) => state.auth?.uid);
   const keyPermAuthorized = useAppStore((state) =>
     isPermissionAuthorized(getRec(state.permissions, "accessibility")?.state),
@@ -112,7 +127,7 @@ export const RootSideEffects = () => {
   );
 
   const handleRecordedAudio = useCallback(
-    async (payload: StopRecordingResponse): Promise<string | null> => {
+    async (payload: StopRecordingResponse): Promise<RecordedAudioResult> => {
       const payloadSamples = Array.isArray(payload.samples)
         ? payload.samples
         : Array.from(payload.samples ?? []);
@@ -121,50 +136,20 @@ export const RootSideEffects = () => {
       if (rate == null || Number.isNaN(rate)) {
         console.error("Received audio payload without sample rate", payload);
         showErrorSnackbar("Recording missing sample rate. Please try again.");
-        return null;
+        return { transcript: null, currentApp: null };
       }
 
       if (rate <= 0 || payloadSamples.length === 0) {
-        return null;
+        return { transcript: null, currentApp: null };
       }
 
       const currentApp = await tryRegisterCurrentAppTarget();
       const toneId = currentApp?.toneId ?? null;
 
-      let finalTranscript: string | null = null;
-      let rawTranscriptValue: string | null = null;
-      let warnings: string[] = [];
-      let metadata: TranscriptionMetadata | undefined;
-
-      try {
-        const result = await transcribeAndPostProcessAudio({
-          samples: payloadSamples,
-          sampleRate: rate,
-          toneId,
-        });
-        finalTranscript = result.transcript;
-        rawTranscriptValue = result.rawTranscript;
-        warnings = result.warnings;
-        metadata = result.metadata;
-      } catch (error) {
-        console.error("Failed to transcribe or post-process audio", error);
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Unable to transcribe audio. Please try again.";
-        if (message) {
-          showErrorSnackbar(message);
-        }
-        return null;
-      }
-
-      if (!finalTranscript) {
-        return null;
-      }
-
       const state = getAppState();
       const transcriptionId = createId();
 
+      // Store audio FIRST so we always have a history entry the user can retranscribe
       let audioSnapshot: TranscriptionAudioSnapshot | undefined;
       try {
         audioSnapshot = await invoke<TranscriptionAudioSnapshot>(
@@ -179,16 +164,46 @@ export const RootSideEffects = () => {
         console.error("Failed to persist audio snapshot", error);
       }
 
+      let finalTranscript: string | null = null;
+      let rawTranscriptValue: string | null = null;
+      let warnings: string[] = [];
+      let metadata: TranscriptionMetadata | undefined;
+      let transcriptionFailed = false;
+
+      try {
+        const result = await transcribeAndPostProcessAudio({
+          samples: payloadSamples,
+          sampleRate: rate,
+          toneId,
+        });
+        finalTranscript = result.transcript;
+        rawTranscriptValue = result.rawTranscript;
+        warnings = result.warnings;
+        metadata = result.metadata;
+      } catch (error) {
+        console.error("Failed to transcribe or post-process audio", error);
+        transcriptionFailed = true;
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Unable to transcribe audio. Please try again.";
+        if (message) {
+          warnings.push(`Transcription failed: ${message}`);
+          showErrorSnackbar(message);
+        }
+      }
+
+      // Always create a history entry so the user can retranscribe later
       const transcription: Transcription = {
         id: transcriptionId,
-        transcript: finalTranscript,
+        transcript: !transcriptionFailed ? finalTranscript ?? "" : "[Transcription Failed]",
         createdAt: dayjs().toISOString(),
         createdByUserId: getMyEffectiveUserId(state),
         isDeleted: false,
         audio: audioSnapshot,
         modelSize: metadata?.modelSize ?? null,
         inferenceDevice: metadata?.inferenceDevice ?? null,
-        rawTranscript: rawTranscriptValue ?? finalTranscript,
+        rawTranscript: rawTranscriptValue ?? finalTranscript ?? "",
         transcriptionPrompt: metadata?.transcriptionPrompt ?? null,
         postProcessPrompt: metadata?.postProcessPrompt ?? null,
         transcriptionApiKeyId: metadata?.transcriptionApiKeyId ?? null,
@@ -196,6 +211,8 @@ export const RootSideEffects = () => {
         transcriptionMode: metadata?.transcriptionMode ?? null,
         postProcessMode: metadata?.postProcessMode ?? null,
         postProcessDevice: metadata?.postProcessDevice ?? null,
+        transcriptionDurationMs: metadata?.transcriptionDurationMs ?? null,
+        postprocessDurationMs: metadata?.postprocessDurationMs ?? null,
         warnings: warnings.length > 0 ? warnings : null,
       };
 
@@ -207,7 +224,7 @@ export const RootSideEffects = () => {
       } catch (error) {
         console.error("Failed to store transcription", error);
         showErrorSnackbar("Unable to save transcription. Please try again.");
-        return null;
+        return { transcript: null, currentApp };
       }
 
       produceAppState((draft) => {
@@ -221,7 +238,7 @@ export const RootSideEffects = () => {
         ];
       });
 
-      const wordsAdded = countWords(finalTranscript);
+      const wordsAdded = finalTranscript ? countWords(finalTranscript) : 0;
       if (wordsAdded > 0) {
         try {
           await addWordsToCurrentUser(wordsAdded);
@@ -246,7 +263,7 @@ export const RootSideEffects = () => {
         console.error("Failed to purge stale audio snapshots", error);
       }
 
-      return finalTranscript;
+      return { transcript: finalTranscript, currentApp };
     },
     [],
   );
@@ -278,15 +295,50 @@ export const RootSideEffects = () => {
     const promise = (async () => {
       try {
         overlayLoadingTokenRef.current = null;
-        await Promise.all([
+
+        // Check if we should use AssemblyAI streaming
+        const prefs = getTranscriptionPrefs(getAppState());
+        const useAssemblyAI = prefs.mode === "api" && prefs.provider === "assemblyai";
+
+        console.log("[AssemblyAI] Transcription prefs:", {
+          mode: prefs.mode,
+          provider: "provider" in prefs ? prefs.provider : "N/A",
+          useAssemblyAI,
+          hasApiKey: "apiKeyValue" in prefs ? !!prefs.apiKeyValue : false,
+        });
+
+        const playAudioPromise = playInteractionChime
+          ? invoke<void>("play_audio", { clip: "start_recording_clip" })
+          : Promise.resolve();
+
+        const [, startRecordingResult] = await Promise.all([
           invoke<void>("set_phase", { phase: "recording" }),
-          invoke<void>("start_recording", {
+          invoke<StartRecordingResponse>("start_recording", {
             args: { preferredMicrophone },
           }),
-          ...(playInteractionChime
-            ? [invoke<void>("play_audio", { clip: "start_recording_clip" })]
-            : []),
+          playAudioPromise,
         ]);
+
+        const streamingSampleRate =
+          typeof startRecordingResult?.sampleRate === "number" &&
+          startRecordingResult.sampleRate > 0
+            ? startRecordingResult.sampleRate
+            : 16000;
+
+        // Start AssemblyAI streaming if needed
+        if (useAssemblyAI && prefs.apiKeyValue) {
+          try {
+            console.log("[AssemblyAI] Starting streaming session...");
+            assemblyAISessionRef.current = await startAssemblyAIStreaming(
+              prefs.apiKeyValue,
+              streamingSampleRate,
+            );
+            console.log("[AssemblyAI] Streaming session started successfully");
+          } catch (error) {
+            console.error("[AssemblyAI] Failed to start streaming:", error);
+            // Continue recording anyway
+          }
+        }
       } catch (error) {
         console.error("Failed to start recording via hotkey", error);
         await invoke<void>("set_phase", { phase: "idle" });
@@ -312,6 +364,7 @@ export const RootSideEffects = () => {
     }
 
     let loadingToken: symbol | null = null;
+    let recordingStoppedAt: number | null = null;
 
     const promise = (async (): Promise<StopRecordingResponse | null> => {
       if (startPendingRef.current) {
@@ -351,13 +404,88 @@ export const RootSideEffects = () => {
 
     stopPendingRef.current = promise;
     const audio = await promise;
+    recordingStoppedAt = performance.now();
 
     isRecordingRef.current = false;
 
-    let finalTranscriptText: string | null = null;
+    let result: RecordedAudioResult | null = null;
+    let streamingTranscriptionDurationMs: number | null = null;
     try {
-      if (audio) {
-        finalTranscriptText = await handleRecordedAudio(audio);
+      // Check if we have an active AssemblyAI streaming session
+      if (assemblyAISessionRef.current) {
+        try {
+          console.log("[AssemblyAI] Finalizing streaming session...");
+          const finalizeStart = recordingStoppedAt ?? performance.now();
+          const transcript = await assemblyAISessionRef.current.finalize();
+          streamingTranscriptionDurationMs = Math.round(performance.now() - finalizeStart);
+          console.log("[AssemblyAI] Transcript timing:", {
+            durationMs: streamingTranscriptionDurationMs,
+          });
+          console.log("[AssemblyAI] Received transcript:", {
+            length: transcript?.length ?? 0,
+            transcript: transcript?.substring(0, 50) + (transcript && transcript.length > 50 ? "..." : ""),
+          });
+          assemblyAISessionRef.current = null;
+
+          // Create minimal result with AssemblyAI transcript
+          const currentApp = await tryRegisterCurrentAppTarget();
+          result = {
+            transcript: transcript || null,
+            currentApp,
+          };
+
+          // Store the transcription
+          if (audio && transcript) {
+            console.log("[AssemblyAI] Storing transcription...");
+            const transcriptionId = createId();
+            const snapshot = await invoke<TranscriptionAudioSnapshot>(
+              "store_transcription_audio",
+              {
+                id: transcriptionId,
+                samples: Array.from(audio.samples),
+                sampleRate: audio.sampleRate ?? 48000,
+              },
+            );
+
+            const transcription: Transcription = {
+              id: transcriptionId,
+              createdByUserId: getMyEffectiveUserId(getAppState()),
+              createdAt: dayjs().toISOString(),
+              rawTranscript: transcript,
+              transcript,
+              isDeleted: false,
+              audio: snapshot,
+              modelSize: null,
+              inferenceDevice: "API • AssemblyAI (Streaming)",
+              transcriptionPrompt: null,
+              postProcessPrompt: null,
+              transcriptionApiKeyId: null,
+              postProcessApiKeyId: null,
+              transcriptionMode: "api",
+              postProcessMode: null,
+              postProcessDevice: null,
+              transcriptionDurationMs: streamingTranscriptionDurationMs,
+              postprocessDurationMs: null,
+              warnings: null,
+            };
+
+            const storedTranscription = await getTranscriptionRepo().createTranscription(transcription);
+            console.log("[AssemblyAI] Transcription stored:", storedTranscription.id);
+            produceAppState((draft) => {
+              draft.transcriptionById[storedTranscription.id] = storedTranscription;
+              draft.transcriptions.transcriptionIds.unshift(storedTranscription.id);
+            });
+            console.log("[AssemblyAI] State updated with new transcription");
+          } else {
+            console.log("[AssemblyAI] Skipping storage - audio or transcript missing:", { hasAudio: !!audio, hasTranscript: !!transcript });
+          }
+        } catch (error) {
+          console.error("[AssemblyAI] Failed to finalize session:", error);
+          assemblyAISessionRef.current = null;
+        }
+      } else if (audio) {
+        // Normal flow for other providers
+        result = await handleRecordedAudio(audio);
       }
     } finally {
       if (loadingToken && overlayLoadingTokenRef.current === loadingToken) {
@@ -365,14 +493,15 @@ export const RootSideEffects = () => {
         await invoke<void>("set_phase", { phase: "idle" });
       }
 
-      const trimmedTranscript = finalTranscriptText?.trim();
+      const trimmedTranscript = result?.transcript?.trim();
       if (trimmedTranscript) {
         await new Promise<void>((resolve) => {
           setTimeout(resolve, 20);
         });
 
         try {
-          await invoke<void>("paste", { text: trimmedTranscript });
+          const keybind = result?.currentApp?.pasteKeybind ?? null;
+          await invoke<void>("paste", { text: trimmedTranscript, keybind });
         } catch (error) {
           console.error("Failed to paste transcription", error);
           showErrorSnackbar("Unable to paste transcription.");

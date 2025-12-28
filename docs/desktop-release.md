@@ -38,6 +38,12 @@ No additional storage credentials are required—the workflow publishes directly
 - The desktop bundle enables Hardened Runtime with custom entitlements at `apps/desktop/src-tauri/macos/Voquill.entitlements`. Keep the Developer ID certificate in sync with these capabilities if you adjust microphone or keyboard monitoring features.
 - macOS now prompts for microphone access (`NSMicrophoneUsageDescription`) and accessibility (`NSAccessibilityUsageDescription`) the first time the app runs. These strings live in `apps/desktop/src-tauri/Info.plist`.
 
+## Windows Installer & VC++ Runtime DLLs
+- Both NSIS and MSI installers bundle Visual C++ 2015-2022 Runtime DLLs via Tauri's `bundle.resources`.
+- These DLLs are required because native dependencies (whisper-rs, cpal, rdev) link against the MSVC runtime.
+- During CI, the workflow copies `msvcp140.dll`, `vcruntime140.dll`, and `vcruntime140_1.dll` from the runner's System32 to `src-tauri/` and patches `tauri.conf.json` to include them in resources.
+- This uses Tauri's official supported method for bundling additional files.
+
 ## Verifying a Dev Release
 1. Push to `main` and wait for the **Release Desktop** workflow to finish.
 2. Check the `metadata` job output for the new `desktop-dev-v*` tag.
