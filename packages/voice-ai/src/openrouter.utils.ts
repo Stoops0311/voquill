@@ -140,6 +140,12 @@ export type OpenRouterGenerateTextArgs = {
 export type OpenRouterGenerateTextOutput = {
   text: string;
   tokensUsed: number;
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+    cost?: number; // Direct cost from OpenRouter in USD
+  };
 };
 
 /**
@@ -166,9 +172,10 @@ export const openrouterGenerateTextResponse = async ({
       }
       messages.push({ role: "user", content: prompt });
 
-      // Build the request with optional provider routing
+      // Build the request with optional provider routing and usage tracking
       const requestParams: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming & {
         provider?: OpenRouterProviderRouting;
+        usage?: { include: boolean };
       } = {
         messages,
         model,
@@ -186,6 +193,8 @@ export const openrouterGenerateTextResponse = async ({
               },
             }
           : undefined,
+        // Enable usage tracking to get exact costs from OpenRouter
+        usage: { include: true },
       };
 
       // Add provider routing if specified
@@ -205,9 +214,19 @@ export const openrouterGenerateTextResponse = async ({
         throw new Error("Content is empty");
       }
 
+      // Extract cost from response - OpenRouter includes this when usage tracking is enabled
+      // Type assertion needed because OpenRouter adds custom fields to the response
+      const cost = (response.usage as any)?.cost;
+
       return {
         text: result,
         tokensUsed: response.usage?.total_tokens ?? countWords(result),
+        usage: {
+          inputTokens: response.usage?.prompt_tokens,
+          outputTokens: response.usage?.completion_tokens,
+          totalTokens: response.usage?.total_tokens,
+          cost: cost, // Direct cost from OpenRouter in USD
+        },
       };
     },
   });

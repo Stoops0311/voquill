@@ -70,6 +70,11 @@ export type OpenAITranscriptionArgs = {
 export type OpenAITranscribeAudioOutput = {
   text: string;
   wordsUsed: number;
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+  };
 };
 
 export const openaiTranscribeAudio = async ({
@@ -97,7 +102,15 @@ export const openaiTranscribeAudio = async ({
         throw new Error("Transcription failed");
       }
 
-      return { text: response.text, wordsUsed: countWords(response.text) };
+      return {
+        text: response.text,
+        wordsUsed: countWords(response.text),
+        usage: {
+          inputTokens: response.usage?.prompt_tokens,
+          outputTokens: response.usage?.completion_tokens,
+          totalTokens: response.usage?.total_tokens,
+        },
+      };
     },
   });
 };
@@ -116,6 +129,11 @@ export type OpenAIGenerateTextArgs = {
 export type OpenAIGenerateResponseOutput = {
   text: string;
   tokensUsed: number;
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+  };
 };
 
 export const openaiGenerateTextResponse = async ({
@@ -182,6 +200,11 @@ export const openaiGenerateTextResponse = async ({
       return {
         text: content,
         tokensUsed: response.usage?.total_tokens ?? countWords(content),
+        usage: {
+          inputTokens: response.usage?.prompt_tokens,
+          outputTokens: response.usage?.completion_tokens,
+          totalTokens: response.usage?.total_tokens,
+        },
       };
     },
   });

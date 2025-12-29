@@ -41,4 +41,22 @@ pub struct Transcription {
     pub postprocess_duration_ms: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warnings: Option<Vec<String>>,
+    // Token tracking
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transcription_input_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transcription_output_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub postprocessing_input_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub postprocessing_output_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_tokens: Option<i64>,
+    // Cost tracking (USD)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transcription_cost_usd: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub postprocessing_cost_usd: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_cost_usd: Option<f64>,
 }

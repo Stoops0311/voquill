@@ -58,6 +58,11 @@ export type GroqTranscriptionArgs = {
 export type GroqTranscribeAudioOutput = {
   text: string;
   wordsUsed: number;
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+  };
 };
 
 export const groqTranscribeAudio = async ({
@@ -85,7 +90,15 @@ export const groqTranscribeAudio = async ({
         throw new Error("Transcription failed");
       }
 
-      return { text: response.text, wordsUsed: countWords(response.text) };
+      return {
+        text: response.text,
+        wordsUsed: countWords(response.text),
+        usage: {
+          inputTokens: response.usage?.prompt_tokens,
+          outputTokens: response.usage?.completion_tokens,
+          totalTokens: response.usage?.total_tokens,
+        },
+      };
     },
   });
 };
@@ -102,6 +115,11 @@ export type GroqGenerateTextArgs = {
 export type GroqGenerateResponseOutput = {
   text: string;
   tokensUsed: number;
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+  };
 };
 
 export const groqGenerateTextResponse = async ({
@@ -165,6 +183,11 @@ export const groqGenerateTextResponse = async ({
       return {
         text: content,
         tokensUsed: response.usage?.total_tokens ?? countWords(content),
+        usage: {
+          inputTokens: response.usage?.prompt_tokens,
+          outputTokens: response.usage?.completion_tokens,
+          totalTokens: response.usage?.total_tokens,
+        },
       };
     },
   });
