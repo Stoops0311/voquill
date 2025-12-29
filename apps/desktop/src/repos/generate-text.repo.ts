@@ -1,11 +1,18 @@
 import { invokeHandler } from "@repo/functions";
-import { JsonResponse, Nullable } from "@repo/types";
+import { JsonResponse, Nullable, OpenRouterProviderRouting } from "@repo/types";
 import {
   groqGenerateTextResponse,
   GenerateTextModel,
   openaiGenerateTextResponse,
   OpenAIGenerateTextModel,
+  openrouterGenerateTextResponse,
+  OPENROUTER_DEFAULT_MODEL,
 } from "@repo/voice-ai";
+import {
+  getTextGenerationPricing,
+  calculateTokenCost,
+} from "@repo/pricing";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { PostProcessingMode } from "../types/ai.types";
 import { BaseRepo } from "./base.repo";
 
@@ -18,6 +25,11 @@ export type GenerateTextInput = {
 export type GenerateTextMetadata = {
   postProcessingMode?: Nullable<PostProcessingMode>;
   inferenceDevice?: Nullable<string>;
+  // Token and cost tracking
+  inputTokens?: Nullable<number>;
+  outputTokens?: Nullable<number>;
+  totalTokens?: Nullable<number>;
+  costUsd?: Nullable<number>;
 };
 
 export type GenerateTextOutput = {
@@ -67,11 +79,28 @@ export class GroqGenerateTextRepo extends BaseGenerateTextRepo {
       jsonResponse: input.jsonResponse,
     });
 
+    // Calculate cost using Groq pricing
+    let costUsd: number | undefined;
+    if (response.usage?.inputTokens && response.usage?.outputTokens) {
+      const pricing = getTextGenerationPricing("groq", this.model);
+      if (pricing) {
+        costUsd = calculateTokenCost(
+          response.usage.inputTokens,
+          response.usage.outputTokens,
+          pricing,
+        );
+      }
+    }
+
     return {
       text: response.text,
       metadata: {
         postProcessingMode: "api",
         inferenceDevice: "API • Groq",
+        inputTokens: response.usage?.inputTokens,
+        outputTokens: response.usage?.outputTokens,
+        totalTokens: response.usage?.totalTokens,
+        costUsd,
       },
     };
   }
@@ -96,11 +125,28 @@ export class OpenAIGenerateTextRepo extends BaseGenerateTextRepo {
       jsonResponse: input.jsonResponse,
     });
 
+    // Calculate cost using OpenAI pricing
+    let costUsd: number | undefined;
+    if (response.usage?.inputTokens && response.usage?.outputTokens) {
+      const pricing = getTextGenerationPricing("openai", this.model);
+      if (pricing) {
+        costUsd = calculateTokenCost(
+          response.usage.inputTokens,
+          response.usage.outputTokens,
+          pricing,
+        );
+      }
+    }
+
     return {
       text: response.text,
       metadata: {
         postProcessingMode: "api",
         inferenceDevice: "API • OpenAI",
+        inputTokens: response.usage?.inputTokens,
+        outputTokens: response.usage?.outputTokens,
+        totalTokens: response.usage?.totalTokens,
+        costUsd,
       },
     };
   }
@@ -124,13 +170,59 @@ export class OllamaGenerateTextRepo extends BaseGenerateTextRepo {
       prompt: input.prompt,
       system: input.system ?? undefined,
       jsonResponse: input.jsonResponse,
+      customFetch: tauriFetch,
     });
 
     return {
       text: response.text,
       metadata: {
         postProcessingMode: "api",
-        inferenceDevice: "API • OpenAI",
+        inferenceDevice: "API • Ollama",
+        inputTokens: response.usage?.inputTokens,
+        outputTokens: response.usage?.outputTokens,
+        totalTokens: response.usage?.totalTokens,
+        costUsd: 0, // Ollama is local/free
+      },
+    };
+  }
+}
+
+export class OpenRouterGenerateTextRepo extends BaseGenerateTextRepo {
+  private apiKey: string;
+  private model: string;
+  private providerRouting?: OpenRouterProviderRouting;
+
+  constructor(
+    apiKey: string,
+    model: string | null,
+    providerRouting?: OpenRouterProviderRouting,
+  ) {
+    super();
+    this.apiKey = apiKey;
+    this.model = model ?? OPENROUTER_DEFAULT_MODEL;
+    this.providerRouting = providerRouting;
+  }
+
+  async generateText(input: GenerateTextInput): Promise<GenerateTextOutput> {
+    const response = await openrouterGenerateTextResponse({
+      apiKey: this.apiKey,
+      model: this.model,
+      prompt: input.prompt,
+      system: input.system ?? undefined,
+      jsonResponse: input.jsonResponse,
+      providerRouting: this.providerRouting,
+    });
+
+    return {
+      text: response.text,
+      metadata: {
+        postProcessingMode: "api",
+        inferenceDevice: "API • OpenRouter",
+        inputTokens: response.usage?.inputTokens,
+        outputTokens: response.usage?.outputTokens,
+        totalTokens: response.usage?.totalTokens,
+        // OpenRouter returns cost directly from the API
+        costUsd: response.usage?.cost,
       },
     };
   }

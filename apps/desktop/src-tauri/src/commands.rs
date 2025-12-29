@@ -5,10 +5,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, EventTarget, Manager, State};
 
 use crate::domain::{
-    ApiKey, ApiKeyCreateRequest, ApiKeyView, OverlayPhase, OverlayPhasePayload,
-    RecordingLevelPayload, TranscriptionAudioSnapshot, EVT_OVERLAY_PHASE, EVT_REC_LEVEL,
+    ApiKey, ApiKeyCreateRequest, ApiKeyView, AudioChunkPayload, OverlayPhase, OverlayPhasePayload,
+    RecordingLevelPayload, TranscriptionAudioSnapshot, EVT_AUDIO_CHUNK, EVT_OVERLAY_PHASE,
+    EVT_REC_LEVEL,
 };
-use crate::platform::{GpuDescriptor, LevelCallback, TranscriptionDevice, TranscriptionRequest};
+use crate::platform::{
+    ChunkCallback, GpuDescriptor, LevelCallback, TranscriptionDevice, TranscriptionRequest,
+};
 use crate::system::crypto::{protect_api_key, reveal_api_key};
 use crate::system::models::WhisperModelSize;
 use crate::system::StorageRepo;
@@ -20,6 +23,12 @@ use crate::platform::input::paste_text_into_focused_field as platform_paste_text
 #[serde(rename_all = "camelCase")]
 pub struct StopRecordingResponse {
     pub samples: Vec<f32>,
+    pub sample_rate: u32,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartRecordingResponse {
     pub sample_rate: u32,
 }
 
@@ -39,6 +48,8 @@ pub struct AppTargetUpsertArgs {
     pub tone_id: Option<String>,
     #[serde(default)]
     pub icon_path: Option<String>,
+    #[serde(default)]
+    pub paste_keybind: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -177,12 +188,10 @@ pub async fn start_google_sign_in(
     app_handle: AppHandle,
     config: State<'_, crate::state::GoogleOAuthState>,
 ) -> Result<(), String> {
-    let config = config
-        .config()
-        .ok_or_else(|| {
-            "Google OAuth client id/secret not configured. Set VOQUILL_GOOGLE_CLIENT_ID and VOQUILL_GOOGLE_CLIENT_SECRET."
-                .to_string()
-        })?;
+    let config = config.config().ok_or_else(|| {
+        "Google OAuth client id/secret not configured. Set VOQUILL_GOOGLE_CLIENT_ID and VOQUILL_GOOGLE_CLIENT_SECRET."
+            .to_string()
+    })?;
 
     let result = crate::system::google_oauth::start_google_oauth(&app_handle, config).await?;
 
@@ -248,6 +257,7 @@ pub async fn app_target_upsert(
         &args.name,
         args.tone_id,
         args.icon_path,
+        args.paste_keybind,
     )
     .await
     .map_err(|err| err.to_string())
@@ -453,6 +463,7 @@ pub async fn api_key_create(
         name,
         provider,
         key,
+        base_url,
     } = api_key;
 
     let protected = protect_api_key(&key);
@@ -469,6 +480,8 @@ pub async fn api_key_create(
         key_suffix: protected.key_suffix,
         transcription_model: None,
         post_processing_model: None,
+        openrouter_config: None,
+        base_url,
     };
 
     crate::db::api_key_queries::insert_api_key(database.pool(), &stored)
@@ -633,7 +646,7 @@ pub fn start_recording(
     app: AppHandle,
     recorder: State<'_, Arc<dyn crate::platform::Recorder>>,
     args: Option<StartRecordingArgs>,
-) -> Result<(), String> {
+) -> Result<StartRecordingResponse, String> {
     let options = args.unwrap_or_default();
 
     recorder.set_preferred_input_device(options.preferred_microphone.clone());
@@ -646,8 +659,21 @@ pub fn start_recording(
         }
     });
 
-    match recorder.start(Some(level_emitter)) {
-        Ok(()) => Ok(()),
+    let chunk_emit_handle = app.clone();
+    let chunk_emitter: ChunkCallback = Arc::new(move |samples: Vec<f32>| {
+        let payload = AudioChunkPayload { samples };
+        if let Err(err) = chunk_emit_handle.emit_to(EventTarget::any(), EVT_AUDIO_CHUNK, payload) {
+            eprintln!("Failed to emit audio_chunk event: {err}");
+        }
+    });
+
+    match recorder.start(Some(level_emitter), Some(chunk_emitter)) {
+        Ok(()) => {
+            let reported_sample_rate = recorder.current_sample_rate().unwrap_or(16_000);
+            Ok(StartRecordingResponse {
+                sample_rate: reported_sample_rate,
+            })
+        }
         Err(err) => {
             let already_recording = (&*err)
                 .downcast_ref::<crate::errors::RecordingError>()
@@ -655,7 +681,10 @@ pub fn start_recording(
                 .unwrap_or(false);
 
             if already_recording {
-                return Ok(());
+                let reported_sample_rate = recorder.current_sample_rate().unwrap_or(16_000);
+                return Ok(StartRecordingResponse {
+                    sample_rate: reported_sample_rate,
+                });
             }
 
             let message = err.to_string();
@@ -938,9 +967,9 @@ pub fn surface_main_window(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn paste(text: String) -> Result<(), String> {
+pub async fn paste(text: String, keybind: Option<String>) -> Result<(), String> {
     let join_result =
-        tauri::async_runtime::spawn_blocking(move || platform_paste_text(&text)).await;
+        tauri::async_runtime::spawn_blocking(move || platform_paste_text(&text, keybind.as_deref())).await;
 
     match join_result {
         Ok(result) => {

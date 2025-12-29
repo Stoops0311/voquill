@@ -17,7 +17,21 @@ export type Transcription = {
   transcriptionMode?: TranscriptionMode | null;
   postProcessMode?: PostProcessingMode | null;
   postProcessDevice?: string | null;
+  transcriptionDurationMs?: number | null;
+  postprocessDurationMs?: number | null;
   warnings?: string[] | null;
+
+  // Token tracking (for API-based transcription/post-processing)
+  transcriptionInputTokens?: number | null;
+  transcriptionOutputTokens?: number | null;
+  postProcessingInputTokens?: number | null;
+  postProcessingOutputTokens?: number | null;
+  totalTokens?: number | null;
+
+  // Cost tracking (USD)
+  transcriptionCostUsd?: number | null;
+  postProcessingCostUsd?: number | null;
+  totalCostUsd?: number | null;
 };
 
 export type TranscriptionAudioSnapshot = {

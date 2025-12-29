@@ -1,7 +1,6 @@
-import { Transcription, TranscriptionAudioSnapshot } from "@repo/types";
-import { countWords, getRec } from "@repo/utilities";
+import { AppTarget } from "@repo/types";
+import { getRec } from "@repo/utilities";
 import { invoke } from "@tauri-apps/api/core";
-import dayjs from "dayjs";
 import { isEqual } from "lodash-es";
 import { useCallback, useRef } from "react";
 import { loadApiKeys } from "../../actions/api-key.actions";
@@ -15,38 +14,37 @@ import { loadHotkeys } from "../../actions/hotkey.actions";
 import { handleGoogleAuthPayload } from "../../actions/login.actions";
 import { syncAutoLaunchSetting } from "../../actions/settings.actions";
 import { loadTones } from "../../actions/tone.actions";
-import {
-  transcribeAndPostProcessAudio,
-  TranscriptionMetadata,
-} from "../../actions/transcribe.actions";
+import { postProcessTranscript } from "../../actions/transcribe.actions";
+import { storeTranscription } from "../../actions/transcription-storage.actions";
 import { checkForAppUpdates } from "../../actions/updater.actions";
-import { addWordsToCurrentUser } from "../../actions/user.actions";
 import { useAsyncEffect } from "../../hooks/async.hooks";
 import { useIntervalAsync } from "../../hooks/helper.hooks";
 import { useHotkeyHold } from "../../hooks/hotkey.hooks";
 import { useTauriListen } from "../../hooks/tauri.hooks";
-import { getTranscriptionRepo } from "../../repos";
+import { createTranscriptionSession } from "../../sessions";
 import { getAppState, produceAppState, useAppStore } from "../../store";
 import { REGISTER_CURRENT_APP_EVENT } from "../../types/app-target.types";
 import type { GoogleAuthPayload } from "../../types/google-auth.types";
 import { GOOGLE_AUTH_EVENT } from "../../types/google-auth.types";
 import { OverlayPhase } from "../../types/overlay.types";
-import { createId } from "../../utils/id.utils";
+import {
+  StopRecordingResponse,
+  TranscriptionSession,
+} from "../../types/transcription-session.types";
 import { DICTATE_HOTKEY } from "../../utils/keyboard.utils";
 import { isPermissionAuthorized } from "../../utils/permission.utils";
 import {
   getIsOnboarded,
-  getMyEffectiveUserId,
   getMyUser,
+  getTranscriptionPrefs,
 } from "../../utils/user.utils";
 import {
   consumeSurfaceWindowFlag,
   surfaceMainWindow,
 } from "../../utils/window.utils";
 
-type StopRecordingResponse = {
-  samples: number[] | Float32Array;
-  sampleRate?: number;
+type StartRecordingResponse = {
+  sampleRate: number;
 };
 
 type KeysHeldPayload = {
@@ -61,6 +59,11 @@ type RecordingLevelPayload = {
   levels?: number[];
 };
 
+type RecordingResult = {
+  transcript: string | null;
+  currentApp: AppTarget | null;
+};
+
 export const RootSideEffects = () => {
   const startPendingRef = useRef<Promise<void> | null>(null);
   const stopPendingRef = useRef<Promise<StopRecordingResponse | null> | null>(
@@ -69,6 +72,7 @@ export const RootSideEffects = () => {
   const isRecordingRef = useRef(false);
   const suppressUntilRef = useRef(0);
   const overlayLoadingTokenRef = useRef<symbol | null>(null);
+  const sessionRef = useRef<TranscriptionSession | null>(null);
   const userId = useAppStore((state) => state.auth?.uid);
   const keyPermAuthorized = useAppStore((state) =>
     isPermissionAuthorized(getRec(state.permissions, "accessibility")?.state),
@@ -111,146 +115,6 @@ export const RootSideEffects = () => {
     [],
   );
 
-  const handleRecordedAudio = useCallback(
-    async (payload: StopRecordingResponse): Promise<string | null> => {
-      const payloadSamples = Array.isArray(payload.samples)
-        ? payload.samples
-        : Array.from(payload.samples ?? []);
-      const rate = payload.sampleRate;
-
-      if (rate == null || Number.isNaN(rate)) {
-        console.error("Received audio payload without sample rate", payload);
-        showErrorSnackbar("Recording missing sample rate. Please try again.");
-        return null;
-      }
-
-      if (rate <= 0 || payloadSamples.length === 0) {
-        return null;
-      }
-
-      const currentApp = await tryRegisterCurrentAppTarget();
-      const toneId = currentApp?.toneId ?? null;
-
-      let finalTranscript: string | null = null;
-      let rawTranscriptValue: string | null = null;
-      let warnings: string[] = [];
-      let metadata: TranscriptionMetadata | undefined;
-
-      try {
-        const result = await transcribeAndPostProcessAudio({
-          samples: payloadSamples,
-          sampleRate: rate,
-          toneId,
-        });
-        finalTranscript = result.transcript;
-        rawTranscriptValue = result.rawTranscript;
-        warnings = result.warnings;
-        metadata = result.metadata;
-      } catch (error) {
-        console.error("Failed to transcribe or post-process audio", error);
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Unable to transcribe audio. Please try again.";
-        if (message) {
-          showErrorSnackbar(message);
-        }
-        return null;
-      }
-
-      if (!finalTranscript) {
-        return null;
-      }
-
-      const state = getAppState();
-      const transcriptionId = createId();
-
-      let audioSnapshot: TranscriptionAudioSnapshot | undefined;
-      try {
-        audioSnapshot = await invoke<TranscriptionAudioSnapshot>(
-          "store_transcription_audio",
-          {
-            id: transcriptionId,
-            samples: payloadSamples,
-            sampleRate: rate,
-          },
-        );
-      } catch (error) {
-        console.error("Failed to persist audio snapshot", error);
-      }
-
-      const transcription: Transcription = {
-        id: transcriptionId,
-        transcript: finalTranscript,
-        createdAt: dayjs().toISOString(),
-        createdByUserId: getMyEffectiveUserId(state),
-        isDeleted: false,
-        audio: audioSnapshot,
-        modelSize: metadata?.modelSize ?? null,
-        inferenceDevice: metadata?.inferenceDevice ?? null,
-        rawTranscript: rawTranscriptValue ?? finalTranscript,
-        transcriptionPrompt: metadata?.transcriptionPrompt ?? null,
-        postProcessPrompt: metadata?.postProcessPrompt ?? null,
-        transcriptionApiKeyId: metadata?.transcriptionApiKeyId ?? null,
-        postProcessApiKeyId: metadata?.postProcessApiKeyId ?? null,
-        transcriptionMode: metadata?.transcriptionMode ?? null,
-        postProcessMode: metadata?.postProcessMode ?? null,
-        postProcessDevice: metadata?.postProcessDevice ?? null,
-        warnings: warnings.length > 0 ? warnings : null,
-      };
-
-      let storedTranscription: Transcription;
-
-      try {
-        storedTranscription =
-          await getTranscriptionRepo().createTranscription(transcription);
-      } catch (error) {
-        console.error("Failed to store transcription", error);
-        showErrorSnackbar("Unable to save transcription. Please try again.");
-        return null;
-      }
-
-      produceAppState((draft) => {
-        draft.transcriptionById[storedTranscription.id] = storedTranscription;
-        const existingIds = draft.transcriptions.transcriptionIds.filter(
-          (identifier) => identifier !== storedTranscription.id,
-        );
-        draft.transcriptions.transcriptionIds = [
-          storedTranscription.id,
-          ...existingIds,
-        ];
-      });
-
-      const wordsAdded = countWords(finalTranscript);
-      if (wordsAdded > 0) {
-        try {
-          await addWordsToCurrentUser(wordsAdded);
-        } catch (error) {
-          console.error("Failed to update usage metrics", error);
-        }
-      }
-
-      try {
-        const purgedIds = await getTranscriptionRepo().purgeStaleAudio();
-        if (purgedIds.length > 0) {
-          produceAppState((draft) => {
-            for (const purgedId of purgedIds) {
-              const purged = draft.transcriptionById[purgedId];
-              if (purged) {
-                delete purged.audio;
-              }
-            }
-          });
-        }
-      } catch (error) {
-        console.error("Failed to purge stale audio snapshots", error);
-      }
-
-      return finalTranscript;
-    },
-    [],
-  );
-
   const startRecording = useCallback(async () => {
     const state = getAppState();
     if (state.isRecordingHotkey) {
@@ -278,20 +142,38 @@ export const RootSideEffects = () => {
     const promise = (async () => {
       try {
         overlayLoadingTokenRef.current = null;
-        await Promise.all([
+
+        const prefs = getTranscriptionPrefs(getAppState());
+        // Don't fetch current app info here - it's slow (icon capture + encoding).
+        // We'll get the toneId when recording stops via tryRegisterCurrentAppTarget().
+        sessionRef.current = createTranscriptionSession(prefs);
+
+        const playAudioPromise = playInteractionChime
+          ? invoke<void>("play_audio", { clip: "start_recording_clip" })
+          : Promise.resolve();
+
+        const [, startRecordingResult] = await Promise.all([
           invoke<void>("set_phase", { phase: "recording" }),
-          invoke<void>("start_recording", {
+          invoke<StartRecordingResponse>("start_recording", {
             args: { preferredMicrophone },
           }),
-          ...(playInteractionChime
-            ? [invoke<void>("play_audio", { clip: "start_recording_clip" })]
-            : []),
+          playAudioPromise,
         ]);
+
+        const sampleRate =
+          typeof startRecordingResult?.sampleRate === "number" &&
+          startRecordingResult.sampleRate > 0
+            ? startRecordingResult.sampleRate
+            : 16000;
+
+        await sessionRef.current.onRecordingStart(sampleRate);
       } catch (error) {
         console.error("Failed to start recording via hotkey", error);
         await invoke<void>("set_phase", { phase: "idle" });
         showErrorSnackbar("Unable to start recording. Please try again.");
         suppressUntilRef.current = Date.now() + 1_000;
+        sessionRef.current?.cleanup();
+        sessionRef.current = null;
       } finally {
         startPendingRef.current = null;
       }
@@ -354,32 +236,76 @@ export const RootSideEffects = () => {
 
     isRecordingRef.current = false;
 
-    let finalTranscriptText: string | null = null;
+    const session = sessionRef.current;
+    sessionRef.current = null;
+
+    let recordingResult: RecordingResult = {
+      transcript: null,
+      currentApp: null,
+    };
+
     try {
-      if (audio) {
-        finalTranscriptText = await handleRecordedAudio(audio);
+      if (session && audio) {
+        const [currentApp, transcribeResult] = await Promise.all([
+          tryRegisterCurrentAppTarget(),
+          session.finalize(audio),
+        ]);
+        const toneId = currentApp?.toneId ?? null;
+        const rawTranscript = transcribeResult.rawTranscript;
+
+        let transcript = rawTranscript;
+        let postProcessMetadata = {};
+        const allWarnings = [...transcribeResult.warnings];
+
+        if (rawTranscript) {
+          const ppResult = await postProcessTranscript({
+            rawTranscript,
+            toneId,
+          });
+          transcript = ppResult.transcript;
+          postProcessMetadata = ppResult.metadata;
+          allWarnings.push(...ppResult.warnings);
+        }
+
+        // don't await so we don't block pasting
+        storeTranscription({
+          audio,
+          rawTranscript,
+          transcript,
+          transcriptionMetadata: transcribeResult.metadata,
+          postProcessMetadata,
+          warnings: allWarnings,
+        });
+
+        recordingResult = {
+          transcript,
+          currentApp,
+        };
       }
     } finally {
+      session?.cleanup();
+
       if (loadingToken && overlayLoadingTokenRef.current === loadingToken) {
         overlayLoadingTokenRef.current = null;
         await invoke<void>("set_phase", { phase: "idle" });
       }
 
-      const trimmedTranscript = finalTranscriptText?.trim();
+      const trimmedTranscript = recordingResult.transcript?.trim();
       if (trimmedTranscript) {
         await new Promise<void>((resolve) => {
           setTimeout(resolve, 20);
         });
 
         try {
-          await invoke<void>("paste", { text: trimmedTranscript });
+          const keybind = recordingResult.currentApp?.pasteKeybind ?? null;
+          await invoke<void>("paste", { text: trimmedTranscript, keybind });
         } catch (error) {
           console.error("Failed to paste transcription", error);
           showErrorSnackbar("Unable to paste transcription.");
         }
       }
     }
-  }, [handleRecordedAudio]);
+  }, []);
 
   useHotkeyHold({
     actionName: DICTATE_HOTKEY,

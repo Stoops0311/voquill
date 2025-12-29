@@ -1,11 +1,10 @@
 import { ApiKeyProvider, Nullable, User, UserPreferences } from "@repo/types";
 import { getRec } from "@repo/utilities";
-import { detectLocale } from "../i18n";
+import { detectLocale, matchSupportedLocale } from "../i18n";
 import { DEFAULT_LOCALE, type Locale } from "../i18n/config";
 import type { AppState } from "../state/app.state";
 import { applyAiPreferences } from "./ai.utils";
 import { registerUsers } from "./app.utils";
-import { normalizeLocaleValue } from "./language.utils";
 import {
   getEffectivePlan,
   getMemberExceedsLimitsFromState,
@@ -51,7 +50,7 @@ export const getMyUser = (state: AppState): Nullable<User> => {
 export const getMyPreferredLocale = (state: AppState): Locale => {
   const user = getMyUser(state);
   return (
-    normalizeLocaleValue(user?.preferredLanguage) ??
+    matchSupportedLocale(user?.preferredLanguage) ??
     detectLocale() ??
     DEFAULT_LOCALE
   );
@@ -202,16 +201,9 @@ export type NoneGenerativePrefs = BaseGenerativePrefs & {
   mode: "none";
 };
 
-export type OllamaGenerativePrefs = BaseGenerativePrefs & {
-  mode: "ollama";
-  ollamaUrl: string | null;
-  ollamaModel: string | null;
-};
-
 export type GenerativePrefs =
   | CloudGenerativePrefs
   | ApiGenerativePrefs
-  | OllamaGenerativePrefs
   | NoneGenerativePrefs;
 
 export const getGenerativePrefs = (state: AppState): GenerativePrefs => {
@@ -249,15 +241,6 @@ export const getGenerativePrefs = (state: AppState): GenerativePrefs => {
     } else {
       warnings.push("No API key configured for API post-processing.");
     }
-  }
-
-  if (config.mode === "ollama") {
-    return {
-      mode: "ollama",
-      ollamaUrl: config.ollamaUrl,
-      ollamaModel: config.ollamaModel,
-      warnings,
-    };
   }
 
   return { mode: "none", warnings };

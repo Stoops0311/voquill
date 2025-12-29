@@ -1,0 +1,2 @@
+-- No-op migration. All schema changes were made in migration 036.
+-- This migration exists to maintain sequential numbering.

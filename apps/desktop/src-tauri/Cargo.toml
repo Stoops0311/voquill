@@ -24,13 +24,15 @@ mac-gpu = ["whisper-rs/metal"]
 windows-gpu = ["whisper-rs/vulkan"]
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png"] }
+tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png", "devtools"] }
 tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tauri-plugin-http = "2"
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite"] }
 thiserror = "1"
@@ -48,7 +50,6 @@ ferrous-focus = { git = "https://github.com/MichaelWGibson/ferrous-focus" }
 image = { version = "0.25.2", default-features = false, features = ["jpeg"] }
 rand = "0.8"
 sha2 = "0.10"
-keyring = "1"
 url = "2"
 jsonwebtoken = "9"
 dotenvy = "0.15"

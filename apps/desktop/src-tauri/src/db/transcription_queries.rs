@@ -40,7 +40,17 @@ fn row_to_transcription(row: SqliteRow) -> Result<Transcription, sqlx::Error> {
         transcription_mode: row.try_get::<Option<String>, _>("transcription_mode")?,
         post_process_mode: row.try_get::<Option<String>, _>("post_process_mode")?,
         post_process_device: row.try_get::<Option<String>, _>("post_process_device")?,
+        transcription_duration_ms: row.try_get::<Option<i64>, _>("transcription_duration_ms")?,
+        postprocess_duration_ms: row.try_get::<Option<i64>, _>("postprocess_duration_ms")?,
         warnings,
+        transcription_input_tokens: row.try_get::<Option<i64>, _>("transcription_input_tokens")?,
+        transcription_output_tokens: row.try_get::<Option<i64>, _>("transcription_output_tokens")?,
+        postprocessing_input_tokens: row.try_get::<Option<i64>, _>("postprocessing_input_tokens")?,
+        postprocessing_output_tokens: row.try_get::<Option<i64>, _>("postprocessing_output_tokens")?,
+        total_tokens: row.try_get::<Option<i64>, _>("total_tokens")?,
+        transcription_cost_usd: row.try_get::<Option<f64>, _>("transcription_cost_usd")?,
+        postprocessing_cost_usd: row.try_get::<Option<f64>, _>("postprocessing_cost_usd")?,
+        total_cost_usd: row.try_get::<Option<f64>, _>("total_cost_usd")?,
     })
 }
 
@@ -65,9 +75,19 @@ pub async fn insert_transcription(
              transcription_mode,
              post_process_mode,
              post_process_device,
-             warnings_json
+             transcription_duration_ms,
+             postprocess_duration_ms,
+             warnings_json,
+             transcription_input_tokens,
+             transcription_output_tokens,
+             postprocessing_input_tokens,
+             postprocessing_output_tokens,
+             total_tokens,
+             transcription_cost_usd,
+             postprocessing_cost_usd,
+             total_cost_usd
          )
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
     )
     .bind(&transcription.id)
     .bind(&transcription.transcript)
@@ -89,7 +109,17 @@ pub async fn insert_transcription(
     .bind(transcription.transcription_mode.as_deref())
     .bind(transcription.post_process_mode.as_deref())
     .bind(transcription.post_process_device.as_deref())
+    .bind(transcription.transcription_duration_ms)
+    .bind(transcription.postprocess_duration_ms)
     .bind(serialize_warnings(&transcription.warnings))
+    .bind(transcription.transcription_input_tokens)
+    .bind(transcription.transcription_output_tokens)
+    .bind(transcription.postprocessing_input_tokens)
+    .bind(transcription.postprocessing_output_tokens)
+    .bind(transcription.total_tokens)
+    .bind(transcription.transcription_cost_usd)
+    .bind(transcription.postprocessing_cost_usd)
+    .bind(transcription.total_cost_usd)
     .execute(&pool)
     .await?;
 
@@ -117,7 +147,17 @@ pub async fn fetch_transcriptions(
                 transcription_mode,
                 post_process_mode,
                 post_process_device,
-                warnings_json
+                transcription_duration_ms,
+                postprocess_duration_ms,
+                warnings_json,
+                transcription_input_tokens,
+                transcription_output_tokens,
+                postprocessing_input_tokens,
+                postprocessing_output_tokens,
+                total_tokens,
+                transcription_cost_usd,
+                postprocessing_cost_usd,
+                total_cost_usd
          FROM transcriptions
          ORDER BY timestamp DESC
          LIMIT ?1 OFFSET ?2",
@@ -156,7 +196,17 @@ pub async fn update_transcription(
              transcription_mode = ?13,
              post_process_mode = ?14,
              post_process_device = ?15,
-             warnings_json = ?16
+             transcription_duration_ms = ?16,
+             postprocess_duration_ms = ?17,
+             warnings_json = ?18,
+             transcription_input_tokens = ?19,
+             transcription_output_tokens = ?20,
+             postprocessing_input_tokens = ?21,
+             postprocessing_output_tokens = ?22,
+             total_tokens = ?23,
+             transcription_cost_usd = ?24,
+             postprocessing_cost_usd = ?25,
+             total_cost_usd = ?26
          WHERE id = ?1",
     )
     .bind(&transcription.id)
@@ -179,7 +229,17 @@ pub async fn update_transcription(
     .bind(transcription.transcription_mode.as_deref())
     .bind(transcription.post_process_mode.as_deref())
     .bind(transcription.post_process_device.as_deref())
+    .bind(transcription.transcription_duration_ms)
+    .bind(transcription.postprocess_duration_ms)
     .bind(serialize_warnings(&transcription.warnings))
+    .bind(transcription.transcription_input_tokens)
+    .bind(transcription.transcription_output_tokens)
+    .bind(transcription.postprocessing_input_tokens)
+    .bind(transcription.postprocessing_output_tokens)
+    .bind(transcription.total_tokens)
+    .bind(transcription.transcription_cost_usd)
+    .bind(transcription.postprocessing_cost_usd)
+    .bind(transcription.total_cost_usd)
     .execute(&pool)
     .await?;
 
@@ -199,7 +259,17 @@ pub async fn update_transcription(
                 transcription_mode,
                 post_process_mode,
                 post_process_device,
-                warnings_json
+                transcription_duration_ms,
+                postprocess_duration_ms,
+                warnings_json,
+                transcription_input_tokens,
+                transcription_output_tokens,
+                postprocessing_input_tokens,
+                postprocessing_output_tokens,
+                total_tokens,
+                transcription_cost_usd,
+                postprocessing_cost_usd,
+                total_cost_usd
          FROM transcriptions
          WHERE id = ?1",
     )

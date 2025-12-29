@@ -16,6 +16,10 @@ pub struct ApiKey {
     pub transcription_model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub post_processing_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "openRouterConfig")]
+    pub openrouter_config: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -25,6 +29,8 @@ pub struct ApiKeyCreateRequest {
     pub name: String,
     pub provider: String,
     pub key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -35,6 +41,10 @@ pub struct ApiKeyUpdateRequest {
     pub transcription_model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub post_processing_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "openRouterConfig")]
+    pub openrouter_config: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -52,6 +62,10 @@ pub struct ApiKeyView {
     pub transcription_model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub post_processing_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "openRouterConfig")]
+    pub openrouter_config: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
 }
 
 impl From<ApiKey> for ApiKeyView {
@@ -65,6 +79,8 @@ impl From<ApiKey> for ApiKeyView {
             key_full: None,
             transcription_model: api_key.transcription_model,
             post_processing_model: api_key.post_processing_model,
+            openrouter_config: api_key.openrouter_config,
+            base_url: api_key.base_url,
         }
     }
 }

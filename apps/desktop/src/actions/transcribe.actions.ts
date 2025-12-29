@@ -4,6 +4,7 @@ import { getGenerateTextRepo, getTranscribeAudioRepo } from "../repos";
 import { getAppState } from "../store";
 import { PostProcessingMode, TranscriptionMode } from "../types/ai.types";
 import { AudioSamples } from "../types/audio.types";
+import { mapLocaleToWhisperLanguage } from "../utils/language.utils";
 import {
   buildLocalizedPostProcessingPrompt,
   buildLocalizedTranscriptionPrompt,
@@ -17,40 +18,70 @@ import {
   getMyPreferredLocale,
 } from "../utils/user.utils";
 
-export type TranscriptionAudioInput = {
+export type TranscribeAudioInput = {
   samples: AudioSamples;
   sampleRate: number;
-  toneId?: Nullable<string>;
 };
 
-export type TranscriptionMetadata = {
+export type TranscribeAudioMetadata = {
   modelSize?: string | null;
   inferenceDevice?: string | null;
-  rawTranscript?: string | null;
   transcriptionPrompt?: string | null;
-  postProcessPrompt?: string | null;
   transcriptionApiKeyId?: string | null;
-  postProcessApiKeyId?: string | null;
   transcriptionMode?: TranscriptionMode | null;
-  postProcessMode?: PostProcessingMode | null;
-  postProcessDevice?: string | null;
+  transcriptionDurationMs?: number | null;
+  // Token and cost tracking
+  transcriptionInputTokens?: number | null;
+  transcriptionOutputTokens?: number | null;
+  transcriptionCostUsd?: number | null;
 };
 
-export type TranscriptionResult = {
-  transcript: string;
+export type TranscribeAudioResult = {
   rawTranscript: string;
   warnings: string[];
-  metadata: TranscriptionMetadata;
+  metadata: TranscribeAudioMetadata;
 };
 
-export const transcribeAndPostProcessAudio = async ({
+export type PostProcessInput = {
+  rawTranscript: string;
+  toneId: Nullable<string>;
+};
+
+export type PostProcessMetadata = {
+  postProcessPrompt?: string | null;
+  postProcessApiKeyId?: string | null;
+  postProcessMode?: PostProcessingMode | null;
+  postProcessDevice?: string | null;
+  postprocessDurationMs?: number | null;
+  // Token and cost tracking
+  postProcessingInputTokens?: number | null;
+  postProcessingOutputTokens?: number | null;
+  postProcessingCostUsd?: number | null;
+};
+
+export type PostProcessResult = {
+  transcript: string;
+  warnings: string[];
+  metadata: PostProcessMetadata;
+};
+
+// Combined metadata type for storage compatibility
+export type TranscriptionMetadata = TranscribeAudioMetadata &
+  PostProcessMetadata & {
+    rawTranscript?: string | null;
+  };
+
+/**
+ * Transcribe audio samples to text.
+ * This is the first step - just converts audio to raw transcript.
+ */
+export const transcribeAudio = async ({
   samples,
   sampleRate,
-  toneId,
-}: TranscriptionAudioInput): Promise<TranscriptionResult> => {
+}: TranscribeAudioInput): Promise<TranscribeAudioResult> => {
   const state = getAppState();
 
-  const metadata: TranscriptionMetadata = {};
+  const metadata: TranscribeAudioMetadata = {};
   const warnings: string[] = [];
 
   const {
@@ -60,6 +91,59 @@ export const transcribeAndPostProcessAudio = async ({
   } = getTranscribeAudioRepo();
   warnings.push(...transcribeWarnings);
 
+  const preferredLocale = getMyPreferredLocale(state);
+  const whisperLanguage = mapLocaleToWhisperLanguage(preferredLocale);
+
+  const dictionaryEntries = collectDictionaryEntries(state);
+  const transcriptionPrompt = buildLocalizedTranscriptionPrompt(
+    dictionaryEntries,
+    preferredLocale,
+  );
+
+  const transcribeStart = performance.now();
+  const transcribeOutput = await transcribeRepo.transcribeAudio({
+    samples,
+    sampleRate,
+    prompt: transcriptionPrompt,
+    language: whisperLanguage,
+  });
+  const transcribeDuration = performance.now() - transcribeStart;
+  const rawTranscript = transcribeOutput.text.trim();
+
+  metadata.modelSize = state.settings.aiTranscription.modelSize || null;
+  metadata.inferenceDevice = transcribeOutput.metadata?.inferenceDevice || null;
+  metadata.transcriptionDurationMs = Math.round(transcribeDuration);
+  metadata.transcriptionPrompt = transcriptionPrompt;
+  metadata.transcriptionApiKeyId = transcriptionApiKeyId;
+  metadata.transcriptionMode =
+    transcribeOutput.metadata?.transcriptionMode || null;
+  metadata.transcriptionInputTokens =
+    transcribeOutput.metadata?.inputTokens || null;
+  metadata.transcriptionOutputTokens =
+    transcribeOutput.metadata?.outputTokens || null;
+  metadata.transcriptionCostUsd =
+    transcribeOutput.metadata?.costUsd || null;
+
+  return {
+    rawTranscript,
+    warnings: dedup(warnings),
+    metadata,
+  };
+};
+
+/**
+ * Post-process a raw transcript using LLM.
+ * This is the second step - cleans up and formats the transcript based on tone.
+ */
+export const postProcessTranscript = async ({
+  rawTranscript,
+  toneId,
+}: PostProcessInput): Promise<PostProcessResult> => {
+  const state = getAppState();
+
+  const metadata: PostProcessMetadata = {};
+  const warnings: string[] = [];
+
   const {
     repo: genRepo,
     apiKeyId: genApiKeyId,
@@ -67,32 +151,10 @@ export const transcribeAndPostProcessAudio = async ({
   } = getGenerateTextRepo();
   warnings.push(...genWarnings);
 
-  // transcribe the audio
-  const preferredLocale = getMyPreferredLocale(state);
-  const dictionaryEntries = collectDictionaryEntries(state);
-  const transcriptionPrompt = buildLocalizedTranscriptionPrompt(
-    dictionaryEntries,
-    preferredLocale,
-  );
-
-  const transcribeOutput = await transcribeRepo.transcribeAudio({
-    samples,
-    sampleRate,
-    prompt: transcriptionPrompt,
-    language: preferredLocale,
-  });
-  const rawTranscript = transcribeOutput.text.trim();
-  metadata.modelSize = state.settings.aiTranscription.modelSize || null;
-  metadata.inferenceDevice = transcribeOutput.metadata?.inferenceDevice || null;
-  metadata.rawTranscript = rawTranscript;
-  metadata.transcriptionPrompt = transcriptionPrompt;
-  metadata.transcriptionApiKeyId = transcriptionApiKeyId;
-  metadata.transcriptionMode =
-    transcribeOutput.metadata?.transcriptionMode || null;
-
-  // post-process the transcription
   let processedTranscript = rawTranscript;
+
   if (genRepo) {
+    const preferredLocale = getMyPreferredLocale(state);
     const myUserId = getMyEffectiveUserId(state);
     const myPrefs = getRec(state.userPreferencesById, myUserId);
     const tone =
@@ -108,6 +170,7 @@ export const transcribeAndPostProcessAudio = async ({
 
     const ppSystem = buildSystemPostProcessingTonePrompt(preferredLocale);
 
+    const postprocessStart = performance.now();
     const genOutput = await genRepo.generateText({
       system: ppSystem,
       prompt: ppPrompt,
@@ -117,6 +180,8 @@ export const transcribeAndPostProcessAudio = async ({
         schema: PROCESSED_TRANSCRIPTION_JSON_SCHEMA,
       },
     });
+    const postprocessDuration = performance.now() - postprocessStart;
+    metadata.postprocessDurationMs = Math.round(postprocessDuration);
 
     try {
       const validationResult = PROCESSED_TRANSCRIPTION_SCHEMA.safeParse(
@@ -140,14 +205,58 @@ export const transcribeAndPostProcessAudio = async ({
     metadata.postProcessApiKeyId = genApiKeyId;
     metadata.postProcessMode = genOutput.metadata?.postProcessingMode || null;
     metadata.postProcessDevice = genOutput.metadata?.inferenceDevice || null;
+    metadata.postProcessingInputTokens =
+      genOutput.metadata?.inputTokens || null;
+    metadata.postProcessingOutputTokens =
+      genOutput.metadata?.outputTokens || null;
+    metadata.postProcessingCostUsd = genOutput.metadata?.costUsd || null;
   } else {
     metadata.postProcessMode = "none";
   }
 
   return {
     transcript: processedTranscript,
-    rawTranscript: rawTranscript,
     warnings: dedup(warnings),
     metadata,
+  };
+};
+
+// Legacy combined type for backward compatibility
+export type TranscriptionAudioInput = {
+  samples: AudioSamples;
+  sampleRate: number;
+  toneId?: Nullable<string>;
+};
+
+export type TranscriptionResult = {
+  transcript: string;
+  rawTranscript: string;
+  warnings: string[];
+  metadata: TranscriptionMetadata;
+};
+
+/**
+ * @deprecated Use transcribeAudio + postProcessTranscript separately for better control
+ */
+export const transcribeAndPostProcessAudio = async ({
+  samples,
+  sampleRate,
+  toneId,
+}: TranscriptionAudioInput): Promise<TranscriptionResult> => {
+  const transcribeResult = await transcribeAudio({ samples, sampleRate });
+  const postProcessResult = await postProcessTranscript({
+    rawTranscript: transcribeResult.rawTranscript,
+    toneId: toneId ?? null,
+  });
+
+  return {
+    transcript: postProcessResult.transcript,
+    rawTranscript: transcribeResult.rawTranscript,
+    warnings: [...transcribeResult.warnings, ...postProcessResult.warnings],
+    metadata: {
+      ...transcribeResult.metadata,
+      ...postProcessResult.metadata,
+      rawTranscript: transcribeResult.rawTranscript,
+    },
   };
 };

@@ -21,8 +21,11 @@ interface WordState {
 }
 
 const TOKENS: WordToken[] = [
-  { id: 0, text: "I" },
-  { id: 1, text: "was—", cleanup: { type: "filler", label: "False start" } },
+  {
+    id: 1,
+    text: "I was...",
+    cleanup: { type: "filler", label: "False start" },
+  },
   { id: 2, text: "I" },
   { id: 3, text: "was" },
   { id: 4, text: "thinking," },
@@ -31,7 +34,11 @@ const TOKENS: WordToken[] = [
   { id: 7, text: "should" },
   { id: 8, text: "meet" },
   { id: 9, text: "with" },
-  { id: 10, text: "Tomas", cleanup: { type: "typo", label: "Spelling", replacement: "Thomas" } },
+  {
+    id: 10,
+    text: "Tomas",
+    cleanup: { type: "typo", label: "Spelling", replacement: "Thomas" },
+  },
   { id: 11, text: "at" },
   { id: 12, text: "3pm." },
 ];
@@ -47,7 +54,8 @@ const createInitialStates = (): WordState[] =>
   TOKENS.map(() => ({ phase: "hidden" as const, charIndex: 0 }));
 
 export default function TextCleanupAnimation() {
-  const [wordStates, setWordStates] = useState<WordState[]>(createInitialStates);
+  const [wordStates, setWordStates] =
+    useState<WordState[]>(createInitialStates);
   const [isComplete, setIsComplete] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const animationRef = useRef({ wordIndex: 0, isRunning: true });
@@ -59,10 +67,13 @@ export default function TextCleanupAnimation() {
     }
   }, []);
 
-  const scheduleNext = useCallback((callback: () => void, delay: number) => {
-    clearTimer();
-    timerRef.current = setTimeout(callback, delay);
-  }, [clearTimer]);
+  const scheduleNext = useCallback(
+    (callback: () => void, delay: number) => {
+      clearTimer();
+      timerRef.current = setTimeout(callback, delay);
+    },
+    [clearTimer],
+  );
 
   const tick = useCallback(() => {
     if (!animationRef.current.isRunning) return;
@@ -96,11 +107,17 @@ export default function TextCleanupAnimation() {
         case "typing":
           if (state.charIndex < token.text.length) {
             // Continue typing
-            newStates[wordIndex] = { phase: "typing", charIndex: state.charIndex + 1 };
+            newStates[wordIndex] = {
+              phase: "typing",
+              charIndex: state.charIndex + 1,
+            };
             scheduleNext(tick, CHAR_DELAY);
           } else {
             // Word complete
-            newStates[wordIndex] = { phase: "visible", charIndex: state.charIndex };
+            newStates[wordIndex] = {
+              phase: "visible",
+              charIndex: state.charIndex,
+            };
             if (token.cleanup) {
               scheduleNext(tick, FLAG_DELAY);
             } else {
@@ -114,14 +131,20 @@ export default function TextCleanupAnimation() {
         case "visible":
           if (token.cleanup) {
             // Flag this word
-            newStates[wordIndex] = { phase: "flagged", charIndex: state.charIndex };
+            newStates[wordIndex] = {
+              phase: "flagged",
+              charIndex: state.charIndex,
+            };
             scheduleNext(tick, CLEAN_DELAY);
           }
           break;
 
         case "flagged":
           // Clean up
-          newStates[wordIndex] = { phase: "cleaned", charIndex: state.charIndex };
+          newStates[wordIndex] = {
+            phase: "cleaned",
+            charIndex: state.charIndex,
+          };
           animationRef.current.wordIndex++;
           scheduleNext(tick, WORD_PAUSE);
           break;
@@ -171,9 +194,7 @@ export default function TextCleanupAnimation() {
 
     return (
       <span className={styles.wordContainer} key={token.id}>
-        <span className={wordClasses}>
-          {displayText}
-        </span>
+        <span className={wordClasses}>{displayText}</span>
 
         {/* Cleanup label */}
         {cleanup && (phase === "flagged" || phase === "cleaned") && (
@@ -224,8 +245,12 @@ export default function TextCleanupAnimation() {
         </svg>
       </div>
 
-      <div className={`${styles.resultBox} ${isComplete ? styles.resultBoxComplete : styles.resultBoxPending}`}>
-        <div className={`${styles.resultText} ${isComplete ? styles.resultTextVisible : ""}`}>
+      <div
+        className={`${styles.resultBox} ${isComplete ? styles.resultBoxComplete : styles.resultBoxPending}`}
+      >
+        <div
+          className={`${styles.resultText} ${isComplete ? styles.resultTextVisible : ""}`}
+        >
           {isComplete ? cleanedText : ""}
         </div>
       </div>

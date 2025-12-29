@@ -60,6 +60,20 @@ pub const USER_PREFERENCES_GOT_STARTED_AT_MIGRATION_SQL: &str =
     include_str!("migrations/029_user_preferences_got_started_at.sql");
 pub const GPU_ENUMERATION_ENABLED_MIGRATION_SQL: &str =
     include_str!("migrations/030_gpu_enumeration_enabled.sql");
+pub const PASTE_KEYBIND_MIGRATION_SQL: &str =
+    include_str!("migrations/031_paste_keybind.sql");
+pub const APP_TARGET_PASTE_KEYBIND_MIGRATION_SQL: &str =
+    include_str!("migrations/032_app_target_paste_keybind.sql");
+pub const TRANSCRIPTION_TIMING_METRICS_MIGRATION_SQL: &str =
+    include_str!("migrations/033_transcription_timing_metrics.sql");
+pub const API_KEY_OPENROUTER_CONFIG_MIGRATION_SQL: &str =
+    include_str!("migrations/034_api_key_openrouter_config.sql");
+pub const API_KEY_BASE_URL_MIGRATION_SQL: &str =
+    include_str!("migrations/035_api_key_base_url.sql");
+pub const TRANSCRIPTION_USAGE_STATS_MIGRATION_SQL: &str =
+    include_str!("migrations/036_transcription_usage_stats.sql");
+pub const TRANSCRIPTION_USAGE_STATS_COMPLETE_MIGRATION_SQL: &str =
+    include_str!("migrations/037_transcription_usage_stats_complete.sql");
 
 pub fn migrations() -> Vec<tauri_plugin_sql::Migration> {
     vec![
@@ -241,6 +255,48 @@ pub fn migrations() -> Vec<tauri_plugin_sql::Migration> {
             version: 30,
             description: "add_gpu_enumeration_enabled",
             sql: GPU_ENUMERATION_ENABLED_MIGRATION_SQL,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
+        tauri_plugin_sql::Migration {
+            version: 31,
+            description: "add_paste_keybind",
+            sql: PASTE_KEYBIND_MIGRATION_SQL,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
+        tauri_plugin_sql::Migration {
+            version: 32,
+            description: "add_app_target_paste_keybind",
+            sql: APP_TARGET_PASTE_KEYBIND_MIGRATION_SQL,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
+        tauri_plugin_sql::Migration {
+            version: 33,
+            description: "add_transcription_timing_metrics",
+            sql: TRANSCRIPTION_TIMING_METRICS_MIGRATION_SQL,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
+        tauri_plugin_sql::Migration {
+            version: 34,
+            description: "add_api_key_openrouter_config",
+            sql: API_KEY_OPENROUTER_CONFIG_MIGRATION_SQL,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
+        tauri_plugin_sql::Migration {
+            version: 35,
+            description: "add_api_key_base_url",
+            sql: API_KEY_BASE_URL_MIGRATION_SQL,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
+        tauri_plugin_sql::Migration {
+            version: 36,
+            description: "add_transcription_usage_stats",
+            sql: TRANSCRIPTION_USAGE_STATS_MIGRATION_SQL,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
+        tauri_plugin_sql::Migration {
+            version: 37,
+            description: "add_transcription_usage_stats_complete",
+            sql: TRANSCRIPTION_USAGE_STATS_COMPLETE_MIGRATION_SQL,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
     ]

@@ -1,0 +1,3 @@
+-- Migration 036 was previously applied but had modifications.
+-- Moved to migration 037 to avoid Tauri SQL plugin validation errors.
+-- This migration is now empty and serves as a placeholder.

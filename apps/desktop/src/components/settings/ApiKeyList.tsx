@@ -1,6 +1,5 @@
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
-import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
   Box,
   Button,
@@ -12,7 +11,6 @@ import {
   FormControl,
   IconButton,
   InputLabel,
-  Link,
   MenuItem,
   Paper,
   Select,
@@ -21,6 +19,18 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
+import {
+  aldeaTestIntegration,
+  assemblyaiTestIntegration,
+  GENERATE_TEXT_MODELS,
+  groqTestIntegration,
+  OPENAI_GENERATE_TEXT_MODELS,
+  OPENAI_TRANSCRIPTION_MODELS,
+  openaiTestIntegration,
+  OPENROUTER_FAVORITE_MODELS,
+  openrouterTestIntegration,
+  TRANSCRIPTION_MODELS,
+} from "@repo/voice-ai";
 import { useCallback, useEffect, useState } from "react";
 import { FormattedMessage } from "react-intl";
 import {
@@ -30,19 +40,16 @@ import {
   updateApiKey,
 } from "../../actions/api-key.actions";
 import { showErrorSnackbar, showSnackbar } from "../../actions/app.actions";
-import { useAppStore } from "../../store";
+import { OllamaRepo } from "../../repos/ollama.repo";
 import {
   SettingsApiKey,
   SettingsApiKeyProvider,
 } from "../../state/settings.state";
-import {
-  groqTestIntegration,
-  openaiTestIntegration,
-  TRANSCRIPTION_MODELS,
-  GENERATE_TEXT_MODELS,
-  OPENAI_TRANSCRIPTION_MODELS,
-  OPENAI_GENERATE_TEXT_MODELS,
-} from "@repo/voice-ai";
+import { useAppStore } from "../../store";
+import { OLLAMA_DEFAULT_URL } from "../../utils/ollama.utils";
+import { OllamaModelPicker } from "./OllamaModelPicker";
+import { OpenRouterModelPicker } from "./OpenRouterModelPicker";
+import { OpenRouterProviderRouting } from "./OpenRouterProviderRouting";
 
 export type ApiKeyListContext = "transcription" | "post-processing";
 
@@ -57,32 +64,42 @@ type AddApiKeyCardProps = {
     name: string,
     provider: SettingsApiKeyProvider,
     key: string,
+    baseUrl?: string,
   ) => Promise<void>;
   onCancel: () => void;
+  context: ApiKeyListContext;
 };
 
-const AddApiKeyCard = ({ onSave, onCancel }: AddApiKeyCardProps) => {
+const AddApiKeyCard = ({ onSave, onCancel, context }: AddApiKeyCardProps) => {
   const [name, setName] = useState("");
   const [provider, setProvider] = useState<SettingsApiKeyProvider>("groq");
   const [key, setKey] = useState("");
+  const [ollamaUrl, setOllamaUrl] = useState("");
   const [saving, setSaving] = useState(false);
 
+  const isOllama = provider === "ollama";
+  const canSave = isOllama ? !!name : !!name && !!key;
+
   const handleSave = useCallback(async () => {
-    if (!name || !key || saving) {
+    if (!canSave || saving) {
       return;
     }
 
     setSaving(true);
     try {
-      await onSave(name, provider, key);
+      // For OLLAMA, use a dummy key since it doesn't require authentication
+      const keyToSave = isOllama ? "ollama" : key;
+      const baseUrl = isOllama ? ollamaUrl || OLLAMA_DEFAULT_URL : undefined;
+      await onSave(name, provider, keyToSave, baseUrl);
       setName("");
       setKey("");
+      setOllamaUrl("");
     } catch (error) {
       console.error("Failed to save API key", error);
     } finally {
       setSaving(false);
     }
-  }, [name, key, provider, onSave, saving]);
+  }, [canSave, isOllama, name, key, ollamaUrl, provider, onSave, saving]);
 
   return (
     <Paper
@@ -116,17 +133,41 @@ const AddApiKeyCard = ({ onSave, onCancel }: AddApiKeyCardProps) => {
       >
         <MenuItem value="groq">Groq</MenuItem>
         <MenuItem value="openai">OpenAI</MenuItem>
+        {/* OpenRouter and Ollama only support LLM, not transcription */}
+        {context === "post-processing" && (
+          <MenuItem value="openrouter">OpenRouter</MenuItem>
+        )}
+        {context === "post-processing" && (
+          <MenuItem value="ollama">Ollama</MenuItem>
+        )}
+        <MenuItem value="aldea">Aldea</MenuItem>
+        <MenuItem value="assemblyai">AssemblyAI</MenuItem>
       </TextField>
-      <TextField
-        label={<FormattedMessage defaultMessage="API key" />}
-        value={key}
-        onChange={(event) => setKey(event.target.value)}
-        placeholder="Paste your API key"
-        size="small"
-        fullWidth
-        type="password"
-        disabled={saving}
-      />
+      {isOllama ? (
+        <TextField
+          label={<FormattedMessage defaultMessage="Ollama URL" />}
+          value={ollamaUrl}
+          onChange={(event) => setOllamaUrl(event.target.value)}
+          placeholder={OLLAMA_DEFAULT_URL}
+          size="small"
+          fullWidth
+          disabled={saving}
+          helperText={
+            <FormattedMessage defaultMessage="Leave empty to use the default URL" />
+          }
+        />
+      ) : (
+        <TextField
+          label={<FormattedMessage defaultMessage="API key" />}
+          value={key}
+          onChange={(event) => setKey(event.target.value)}
+          placeholder="Paste your API key"
+          size="small"
+          fullWidth
+          type="password"
+          disabled={saving}
+        />
+      )}
       <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end" }}>
         <Button
           variant="outlined"
@@ -140,7 +181,7 @@ const AddApiKeyCard = ({ onSave, onCancel }: AddApiKeyCardProps) => {
           variant="contained"
           size="small"
           onClick={handleSave}
-          disabled={!name || !key || saving}
+          disabled={!canSave || saving}
         >
           {saving ? (
             <FormattedMessage defaultMessage="Saving..." />
@@ -154,6 +195,12 @@ const AddApiKeyCard = ({ onSave, onCancel }: AddApiKeyCardProps) => {
 };
 
 const testApiKey = async (apiKey: SettingsApiKey): Promise<boolean> => {
+  // OLLAMA doesn't need an API key, just check server availability
+  if (apiKey.provider === "ollama") {
+    const repo = new OllamaRepo(apiKey.baseUrl || OLLAMA_DEFAULT_URL);
+    return repo.checkAvailability();
+  }
+
   if (!apiKey.keyFull) {
     throw new Error("The stored API key value is unavailable.");
   }
@@ -163,6 +210,12 @@ const testApiKey = async (apiKey: SettingsApiKey): Promise<boolean> => {
       return groqTestIntegration({ apiKey: apiKey.keyFull });
     case "openai":
       return openaiTestIntegration({ apiKey: apiKey.keyFull });
+    case "openrouter":
+      return openrouterTestIntegration({ apiKey: apiKey.keyFull });
+    case "aldea":
+      return aldeaTestIntegration({ apiKey: apiKey.keyFull });
+    case "assemblyai":
+      return assemblyaiTestIntegration({ apiKey: apiKey.keyFull });
     default:
       throw new Error("Testing is not available for this provider.");
   }
@@ -181,6 +234,16 @@ const getModelsForProvider = (
       return context === "transcription"
         ? OPENAI_TRANSCRIPTION_MODELS
         : OPENAI_GENERATE_TEXT_MODELS;
+    case "openrouter":
+      // OpenRouter doesn't support transcription, only post-processing
+      return context === "transcription" ? [] : OPENROUTER_FAVORITE_MODELS;
+    case "ollama":
+      // Ollama models are fetched dynamically via OllamaModelPicker
+      return [];
+    case "aldea":
+      return [];
+    case "assemblyai":
+      return [];
     default:
       return [];
   }
@@ -297,7 +360,30 @@ const ApiKeyCard = ({
           </Tooltip>
         </Stack>
       </Stack>
-      {models.length > 0 ? (
+      {/* OpenRouter gets special model picker and routing UI */}
+      {apiKey.provider === "openrouter" && context === "post-processing" ? (
+        <Box onClick={(e) => e.stopPropagation()}>
+          <OpenRouterModelPicker
+            apiKeyId={apiKey.id}
+            selectedModel={currentModel}
+            onModelSelect={onModelChange}
+            disabled={testing || deleting}
+          />
+          <OpenRouterProviderRouting
+            apiKeyId={apiKey.id}
+            disabled={testing || deleting}
+          />
+        </Box>
+      ) : apiKey.provider === "ollama" && context === "post-processing" ? (
+        <Box onClick={(e) => e.stopPropagation()}>
+          <OllamaModelPicker
+            baseUrl={apiKey.baseUrl ?? null}
+            selectedModel={currentModel}
+            onModelSelect={onModelChange}
+            disabled={testing || deleting}
+          />
+        </Box>
+      ) : models.length > 0 ? (
         <FormControl fullWidth size="small">
           <InputLabel id={`model-select-label-${apiKey.id}`}>
             <FormattedMessage defaultMessage="Model" />
@@ -333,7 +419,18 @@ export const ApiKeyList = ({
   onChange,
   context,
 }: ApiKeyListProps) => {
-  const apiKeys = useAppStore((state) => state.settings.apiKeys);
+  const allApiKeys = useAppStore((state) => state.settings.apiKeys);
+
+  // Filter API keys based on context - OpenRouter and Ollama only support post-processing
+  const apiKeys = allApiKeys.filter((key) => {
+    if (
+      context === "transcription" &&
+      (key.provider === "openrouter" || key.provider === "ollama")
+    ) {
+      return false;
+    }
+    return true;
+  });
   const status = useAppStore((state) => state.settings.apiKeysStatus);
   const [showAddCard, setShowAddCard] = useState(false);
   const [testingApiKeyId, setTestingApiKeyId] = useState<string | null>(null);
@@ -359,12 +456,18 @@ export const ApiKeyList = ({
   }, [apiKeys, selectedApiKeyId, onChange]);
 
   const handleAddApiKey = useCallback(
-    async (name: string, provider: SettingsApiKeyProvider, key: string) => {
+    async (
+      name: string,
+      provider: SettingsApiKeyProvider,
+      key: string,
+      baseUrl?: string,
+    ) => {
       const created = await createApiKey({
         id: generateApiKeyId(),
         name,
         provider,
         key,
+        baseUrl,
       });
 
       onChange(created.id);
@@ -489,24 +592,6 @@ export const ApiKeyList = ({
 
   return (
     <Stack spacing={1} sx={{ width: "100%" }}>
-      <Stack direction="row" spacing={0.5} alignItems="center">
-        <Typography variant="body2" color="text.secondary">
-          <FormattedMessage defaultMessage="Grab an API key from the" />
-        </Typography>
-        <Link
-          href="https://console.groq.com/"
-          target="_blank"
-          rel="noopener noreferrer"
-          sx={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 0.5,
-          }}
-        >
-          <FormattedMessage defaultMessage="Groq Console" />
-          <OpenInNewIcon sx={{ fontSize: 16 }} />
-        </Link>
-      </Stack>
       {shouldShowLoading ? (
         loadingState
       ) : shouldShowError ? (
@@ -535,6 +620,7 @@ export const ApiKeyList = ({
         <AddApiKeyCard
           onSave={handleAddApiKey}
           onCancel={() => setShowAddCard(false)}
+          context={context}
         />
       ) : apiKeys.length > 0 || shouldShowError ? (
         <Button

@@ -7,6 +7,12 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
     let updater_builder = tauri_plugin_updater::Builder::new();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // When a second instance is launched, bring the existing window to the foreground
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = crate::platform::window::surface_main_window(&window);
+            }
+        }))
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec![AUTOSTART_HIDDEN_ARG.into()]),
@@ -20,6 +26,7 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
         .plugin(updater_builder.build())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_http::init())
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
@@ -99,6 +106,14 @@ pub fn build() -> tauri::Builder<tauri::Wry> {
                     .map_err(|err| -> Box<dyn std::error::Error> { Box::new(err) })?;
             }
 
+            // Open dev tools if VOQUILL_ENABLE_DEVTOOLS is set
+            if std::env::var("VOQUILL_ENABLE_DEVTOOLS").is_ok() {
+                eprintln!("[app] VOQUILL_ENABLE_DEVTOOLS detected, opening dev tools...");
+                if let Some(main_window) = app.get_webview_window("main") {
+                    main_window.open_devtools();
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -175,6 +190,7 @@ fn ensure_overlay_window(app: &tauri::AppHandle) -> tauri::Result<()> {
         .skip_taskbar(true)
         .resizable(false)
         .shadow(false)
+        .focusable(false)
         .inner_size(OVERLAY_WINDOW_WIDTH, OVERLAY_WINDOW_HEIGHT)
         .build()?;
 

@@ -1,4 +1,4 @@
-import { ApiKey, ApiKeyProvider } from "@repo/types";
+import { ApiKey, ApiKeyProvider, OpenRouterConfig } from "@repo/types";
 import { invoke } from "@tauri-apps/api/core";
 import dayjs from "dayjs";
 import { BaseRepo } from "./base.repo";
@@ -12,6 +12,19 @@ type LocalApiKey = {
   keyFull?: string | null;
   transcriptionModel?: string | null;
   postProcessingModel?: string | null;
+  openrouterConfig?: string | null;
+  baseUrl?: string | null;
+};
+
+const parseOpenRouterConfig = (
+  configStr: string | null | undefined,
+): OpenRouterConfig | null => {
+  if (!configStr) return null;
+  try {
+    return JSON.parse(configStr) as OpenRouterConfig;
+  } catch {
+    return null;
+  }
 };
 
 const fromLocalApiKey = (apiKey: LocalApiKey): ApiKey => ({
@@ -23,6 +36,8 @@ const fromLocalApiKey = (apiKey: LocalApiKey): ApiKey => ({
   keyFull: apiKey.keyFull ?? null,
   transcriptionModel: apiKey.transcriptionModel ?? null,
   postProcessingModel: apiKey.postProcessingModel ?? null,
+  openRouterConfig: parseOpenRouterConfig(apiKey.openrouterConfig),
+  baseUrl: apiKey.baseUrl ?? null,
 });
 
 export type CreateApiKeyPayload = {
@@ -30,12 +45,15 @@ export type CreateApiKeyPayload = {
   name: string;
   provider: ApiKeyProvider;
   key: string;
+  baseUrl?: string;
 };
 
 export type UpdateApiKeyPayload = {
   id: string;
   transcriptionModel?: string | null;
   postProcessingModel?: string | null;
+  openRouterConfig?: OpenRouterConfig | null;
+  baseUrl?: string | null;
 };
 
 export abstract class BaseApiKeyRepo extends BaseRepo {
@@ -59,7 +77,17 @@ export class LocalApiKeyRepo extends BaseApiKeyRepo {
   }
 
   async updateApiKey(payload: UpdateApiKeyPayload): Promise<void> {
-    await invoke<void>("api_key_update", { request: payload });
+    // Convert OpenRouterConfig object to JSON string for Rust
+    const request = {
+      ...payload,
+      openRouterConfig:
+        payload.openRouterConfig !== undefined
+          ? payload.openRouterConfig
+            ? JSON.stringify(payload.openRouterConfig)
+            : null
+          : undefined,
+    };
+    await invoke<void>("api_key_update", { request });
   }
 
   async deleteApiKey(id: string): Promise<void> {

@@ -1,10 +1,17 @@
 import Groq, { toFile } from "groq-sdk/index";
-import { ChatCompletionContentPart, ChatCompletionMessageParam } from "groq-sdk/resources/chat/completions";
+import {
+  ChatCompletionContentPart,
+  ChatCompletionMessageParam,
+} from "groq-sdk/resources/chat/completions";
 import { retry } from "@repo/utilities/src/async";
 import { countWords } from "@repo/utilities/src/string";
 import type { JsonResponse } from "@repo/types";
 
-export const GENERATE_TEXT_MODELS = ["meta-llama/llama-4-scout-17b-16e-instruct", "openai/gpt-oss-20b", "openai/gpt-oss-120b"] as const;
+export const GENERATE_TEXT_MODELS = [
+  "meta-llama/llama-4-scout-17b-16e-instruct",
+  "openai/gpt-oss-20b",
+  "openai/gpt-oss-120b",
+] as const;
 export type GenerateTextModel = (typeof GENERATE_TEXT_MODELS)[number];
 
 export const TRANSCRIPTION_MODELS = ["whisper-large-v3-turbo"] as const;
@@ -37,21 +44,21 @@ const createClient = (apiKey: string) => {
   // The Tauri app doesn't run in a web browser and encyrpts API keys locally, so this
   // is safe.
   return new Groq({ apiKey: apiKey.trim(), dangerouslyAllowBrowser: true });
-}
+};
 
 export type GroqTranscriptionArgs = {
   apiKey: string;
   model?: TranscriptionModel;
-  blob: ArrayBuffer | Buffer,
-  ext: string
+  blob: ArrayBuffer | Buffer;
+  ext: string;
   prompt?: string;
   language?: string;
-}
+};
 
 export type GroqTranscribeAudioOutput = {
   text: string;
   wordsUsed: number;
-}
+};
 
 export const groqTranscribeAudio = async ({
   apiKey,
@@ -78,10 +85,13 @@ export const groqTranscribeAudio = async ({
         throw new Error("Transcription failed");
       }
 
-      return { text: response.text, wordsUsed: countWords(response.text) };
+      return {
+        text: response.text,
+        wordsUsed: countWords(response.text),
+      };
     },
   });
-}
+};
 
 export type GroqGenerateTextArgs = {
   apiKey: string;
@@ -90,12 +100,17 @@ export type GroqGenerateTextArgs = {
   prompt: string;
   imageUrls?: string[];
   jsonResponse?: JsonResponse;
-}
+};
 
 export type GroqGenerateResponseOutput = {
   text: string;
   tokensUsed: number;
-}
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+  };
+};
 
 export const groqGenerateTextResponse = async ({
   apiKey,
@@ -134,13 +149,13 @@ export const groqGenerateTextResponse = async ({
         top_p: 1,
         response_format: jsonResponse
           ? {
-            type: "json_schema",
-            json_schema: {
-              name: jsonResponse.name,
-              description: jsonResponse.description,
-              schema: jsonResponse.schema,
-            },
-          }
+              type: "json_schema",
+              json_schema: {
+                name: jsonResponse.name,
+                description: jsonResponse.description,
+                schema: jsonResponse.schema,
+              },
+            }
           : undefined,
       });
 
@@ -158,14 +173,19 @@ export const groqGenerateTextResponse = async ({
       return {
         text: content,
         tokensUsed: response.usage?.total_tokens ?? countWords(content),
+        usage: {
+          inputTokens: response.usage?.prompt_tokens,
+          outputTokens: response.usage?.completion_tokens,
+          totalTokens: response.usage?.total_tokens,
+        },
       };
     },
   });
-}
+};
 
 export type GroqTestIntegrationArgs = {
   apiKey: string;
-}
+};
 
 export const groqTestIntegration = async ({
   apiKey,
@@ -201,4 +221,4 @@ export const groqTestIntegration = async ({
   }
 
   return content.toLowerCase().includes("hello");
-}
+};
