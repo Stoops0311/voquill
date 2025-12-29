@@ -72,6 +72,8 @@ pub const API_KEY_BASE_URL_MIGRATION_SQL: &str =
     include_str!("migrations/035_api_key_base_url.sql");
 pub const TRANSCRIPTION_USAGE_STATS_MIGRATION_SQL: &str =
     include_str!("migrations/036_transcription_usage_stats.sql");
+pub const TRANSCRIPTION_USAGE_STATS_COMPLETE_MIGRATION_SQL: &str =
+    include_str!("migrations/037_transcription_usage_stats_complete.sql");
 
 pub fn migrations() -> Vec<tauri_plugin_sql::Migration> {
     vec![
@@ -289,6 +291,12 @@ pub fn migrations() -> Vec<tauri_plugin_sql::Migration> {
             version: 36,
             description: "add_transcription_usage_stats",
             sql: TRANSCRIPTION_USAGE_STATS_MIGRATION_SQL,
+            kind: tauri_plugin_sql::MigrationKind::Up,
+        },
+        tauri_plugin_sql::Migration {
+            version: 37,
+            description: "add_transcription_usage_stats_complete",
+            sql: TRANSCRIPTION_USAGE_STATS_COMPLETE_MIGRATION_SQL,
             kind: tauri_plugin_sql::MigrationKind::Up,
         },
     ]

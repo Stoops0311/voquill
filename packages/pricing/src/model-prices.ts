@@ -119,19 +119,14 @@ export function getTranscriptionPricing(
   const normalizedProvider = provider.toLowerCase().trim();
 
   if (normalizedProvider.includes('groq')) {
-    const pricing =
-      PROVIDER_PRICING.groq.transcription[
-        (model as keyof typeof PROVIDER_PRICING.groq.transcription) ||
-          'whisper-large-v3-turbo'
-      ];
+    const groqModel = model || 'whisper-large-v3-turbo';
+    const pricing = PROVIDER_PRICING.groq.transcription[groqModel as keyof typeof PROVIDER_PRICING.groq.transcription];
     return pricing || null;
   }
 
   if (normalizedProvider.includes('openai')) {
-    const pricing =
-      PROVIDER_PRICING.openai.transcription[
-        (model as keyof typeof PROVIDER_PRICING.openai.transcription) || 'whisper-1'
-      ];
+    const openaiModel = model || 'whisper-1';
+    const pricing = PROVIDER_PRICING.openai.transcription[openaiModel as keyof typeof PROVIDER_PRICING.openai.transcription];
     return pricing || null;
   }
 
@@ -160,20 +155,15 @@ export function getTextGenerationPricing(
 
   if (normalizedProvider.includes('groq')) {
     // Default to Llama 4 Scout if no model specified
-    const modelKey =
-      (model as keyof typeof PROVIDER_PRICING.groq.textGeneration) ||
-      'meta-llama/llama-4-scout-17b-16e-instruct';
-
-    const pricing = PROVIDER_PRICING.groq.textGeneration[modelKey];
+    const groqModel = model || 'meta-llama/llama-4-scout-17b-16e-instruct';
+    const pricing = PROVIDER_PRICING.groq.textGeneration[groqModel as keyof typeof PROVIDER_PRICING.groq.textGeneration];
     return pricing || null;
   }
 
   if (normalizedProvider.includes('openai')) {
     // Default to gpt-4o-mini if no model specified
-    const modelKey =
-      (model as keyof typeof PROVIDER_PRICING.openai.textGeneration) || 'gpt-4o-mini';
-
-    const pricing = PROVIDER_PRICING.openai.textGeneration[modelKey];
+    const openaiModel = model || 'gpt-4o-mini';
+    const pricing = PROVIDER_PRICING.openai.textGeneration[openaiModel as keyof typeof PROVIDER_PRICING.openai.textGeneration];
     return pricing || null;
   }
 

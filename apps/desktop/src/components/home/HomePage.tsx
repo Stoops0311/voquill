@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Box, Stack, TextField, Typography } from "@mui/material";
 import { FormattedMessage, useIntl } from "react-intl";
 import { useAppStore } from "../../store";
@@ -7,14 +8,50 @@ import { DashboardEntryLayout } from "../dashboard/DashboardEntryLayout";
 import { Stat } from "./Stat";
 import { HomeSideEffects } from "./HomeSideEffects";
 import { DictationInstruction } from "../common/DictationInstruction";
+import {
+  formatCostUsd,
+  getTranscriptionCostWithFallback,
+} from "@repo/pricing";
 
 export default function HomePage() {
   const user = useAppStore(getMyUser);
   const userName = useAppStore(getMyUserName);
+  const transcriptionIds = useAppStore((state) => state.transcriptions.transcriptionIds);
+  const transcriptionById = useAppStore((state) => state.transcriptionById);
   const intl = useIntl();
 
   const wordsThisMonth = user?.wordsThisMonth ?? 0;
   const wordsTotal = user?.wordsTotal ?? 0;
+
+  const { monthlyCostTotal, totalCostTotal } = useMemo(() => {
+    const transcriptions = transcriptionIds
+      .map((id) => transcriptionById[id])
+      .filter((t) => t !== undefined);
+
+    const now = new Date();
+    const thisMonth = transcriptions.filter((t) => {
+      const created = new Date(t.createdAt);
+      return (
+        created.getMonth() === now.getMonth() &&
+        created.getFullYear() === now.getFullYear()
+      );
+    });
+
+    const monthlyCosts = thisMonth.map(
+      (t) => getTranscriptionCostWithFallback(t).totalCostUsd,
+    );
+    const monthlyTotal = monthlyCosts.reduce((sum: number, cost: number) => sum + cost, 0);
+
+    const allCosts = transcriptions.map(
+      (t) => getTranscriptionCostWithFallback(t).totalCostUsd,
+    );
+    const allTotal = allCosts.reduce((sum: number, cost: number) => sum + cost, 0);
+
+    return {
+      monthlyCostTotal: monthlyTotal,
+      totalCostTotal: allTotal,
+    };
+  }, [transcriptionIds, transcriptionById]);
 
   return (
     <DashboardEntryLayout>
@@ -44,6 +81,18 @@ export default function HomePage() {
                 defaultMessage: "Words total",
               })}
               value={wordsTotal}
+            />
+            <Stat
+              label={intl.formatMessage({
+                defaultMessage: "Cost this month",
+              })}
+              value={formatCostUsd(monthlyCostTotal)}
+            />
+            <Stat
+              label={intl.formatMessage({
+                defaultMessage: "Cost total",
+              })}
+              value={formatCostUsd(totalCostTotal)}
             />
           </Stack>
         </Box>

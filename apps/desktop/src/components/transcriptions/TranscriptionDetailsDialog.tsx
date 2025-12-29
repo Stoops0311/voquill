@@ -21,6 +21,7 @@ import {
 import { AppState } from "../../state/app.state";
 import { useAppStore } from "../../store";
 import { TranscriptionToneMenu } from "./TranscriptionToneMenu";
+import { formatCostUsd } from "@repo/pricing";
 
 const formatModelSizeLabel = (
   modelSize?: string | null,
@@ -427,6 +428,58 @@ export const TranscriptionDetailsDialog = () => {
                           {postprocessDurationLabel}
                         </Typography>
                       </Box>
+                    )}
+                  </Stack>
+                </Box>
+              </>
+            )}
+
+            {(transcription?.transcriptionCostUsd || transcription?.postProcessingCostUsd) && (
+              <>
+                <Divider />
+
+                <Box>
+                  <Typography variant="overline" color="text.secondary">
+                    <FormattedMessage defaultMessage="Cost Breakdown" />
+                  </Typography>
+                  <Stack spacing={1.25} sx={{ mt: 1 }}>
+                    {transcription?.transcriptionCostUsd !== null && transcription?.transcriptionCostUsd !== undefined && (
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                          <FormattedMessage defaultMessage="Transcription" />
+                        </Typography>
+                        <Typography variant="body2">
+                          {formatCostUsd(transcription.transcriptionCostUsd, 4)}
+                        </Typography>
+                      </Box>
+                    )}
+
+                    {transcription?.postProcessingCostUsd !== null && transcription?.postProcessingCostUsd !== undefined && (
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                          <FormattedMessage defaultMessage="Post-processing" />
+                        </Typography>
+                        <Typography variant="body2">
+                          {formatCostUsd(transcription.postProcessingCostUsd, 4)}
+                        </Typography>
+                      </Box>
+                    )}
+
+                    {transcription?.totalCostUsd !== null && transcription?.totalCostUsd !== undefined && (
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: "block", fontWeight: 600 }}>
+                          <FormattedMessage defaultMessage="Total" />
+                        </Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          {formatCostUsd(transcription.totalCostUsd, 4)}
+                        </Typography>
+                      </Box>
+                    )}
+
+                    {!transcription?.transcriptionCostUsd && !transcription?.postProcessingCostUsd && (
+                      <Typography variant="body2" color="text.secondary">
+                        <FormattedMessage defaultMessage="Cost data not available for this transcription" />
+                      </Typography>
                     )}
                   </Stack>
                 </Box>
