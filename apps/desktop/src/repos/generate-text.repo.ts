@@ -11,8 +11,6 @@ import {
 import {
   getTextGenerationPricing,
   calculateTokenCost,
-  providerReturnsDirectCosts,
-  isProviderFree,
 } from "@repo/pricing";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { PostProcessingMode } from "../types/ai.types";

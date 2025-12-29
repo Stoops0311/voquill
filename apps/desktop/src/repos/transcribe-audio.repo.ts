@@ -10,7 +10,6 @@ import {
 import {
   getTranscriptionPricing,
   calculateAudioCost,
-  isProviderFree,
 } from "@repo/pricing";
 import { invoke } from "@tauri-apps/api/core";
 import { getAppState } from "../store";
@@ -185,6 +184,10 @@ export class GroqTranscribeAudioRepo extends BaseTranscribeAudioRepo {
   async transcribeAudio(
     input: TranscribeAudioInput,
   ): Promise<TranscribeAudioOutput> {
+    if (!input.samples) {
+      throw new Error("Audio samples are required");
+    }
+
     const normalized = normalizeSamples(input.samples);
     const floatSamples = ensureFloat32Array(normalized);
     const wavBuffer = buildWaveFile(floatSamples, input.sampleRate);
@@ -214,9 +217,6 @@ export class GroqTranscribeAudioRepo extends BaseTranscribeAudioRepo {
         inferenceDevice: "API • Groq",
         modelSize: this.model,
         transcriptionMode: "api",
-        inputTokens: result.usage?.inputTokens,
-        outputTokens: result.usage?.outputTokens,
-        totalTokens: result.usage?.totalTokens,
         costUsd,
       },
     };
@@ -236,6 +236,10 @@ export class OpenAITranscribeAudioRepo extends BaseTranscribeAudioRepo {
   async transcribeAudio(
     input: TranscribeAudioInput,
   ): Promise<TranscribeAudioOutput> {
+    if (!input.samples) {
+      throw new Error("Audio samples are required");
+    }
+
     const normalized = normalizeSamples(input.samples);
     const floatSamples = ensureFloat32Array(normalized);
     const wavBuffer = buildWaveFile(floatSamples, input.sampleRate);
@@ -265,9 +269,6 @@ export class OpenAITranscribeAudioRepo extends BaseTranscribeAudioRepo {
         inferenceDevice: "API • OpenAI",
         modelSize: this.model,
         transcriptionMode: "api",
-        inputTokens: result.usage?.inputTokens,
-        outputTokens: result.usage?.outputTokens,
-        totalTokens: result.usage?.totalTokens,
         costUsd,
       },
     };
@@ -285,6 +286,10 @@ export class AldeaTranscribeAudioRepo extends BaseTranscribeAudioRepo {
   async transcribeAudio(
     input: TranscribeAudioInput,
   ): Promise<TranscribeAudioOutput> {
+    if (!input.samples) {
+      throw new Error("Audio samples are required");
+    }
+
     const normalized = normalizeSamples(input.samples);
     const floatSamples = ensureFloat32Array(normalized);
     const wavBuffer = buildWaveFile(floatSamples, input.sampleRate);
@@ -312,9 +317,6 @@ export class AldeaTranscribeAudioRepo extends BaseTranscribeAudioRepo {
         inferenceDevice: "API • Aldea",
         modelSize: null,
         transcriptionMode: "api",
-        inputTokens: result.usage?.inputTokens,
-        outputTokens: result.usage?.outputTokens,
-        totalTokens: result.usage?.totalTokens,
         costUsd,
       },
     };
