@@ -7,6 +7,11 @@ import {
   OpenAITranscriptionModel,
   aldeaTranscribeAudio,
 } from "@repo/voice-ai";
+import {
+  getTranscriptionPricing,
+  calculateAudioCost,
+  isProviderFree,
+} from "@repo/pricing";
 import { invoke } from "@tauri-apps/api/core";
 import { getAppState } from "../store";
 import {
@@ -40,6 +45,11 @@ export type TranscribeAudioMetadata = {
   inferenceDevice?: Nullable<string>;
   modelSize?: Nullable<string>;
   transcriptionMode?: Nullable<TranscriptionMode>;
+  // Token and cost tracking
+  inputTokens?: Nullable<number>;
+  outputTokens?: Nullable<number>;
+  totalTokens?: Nullable<number>;
+  costUsd?: Nullable<number>;
 };
 
 export type TranscribeAudioInput = {
@@ -131,6 +141,7 @@ export class LocalTranscribeAudioRepo extends BaseTranscribeAudioRepo {
         inferenceDevice: options.deviceLabel,
         modelSize: options.modelSize,
         transcriptionMode: "local",
+        costUsd: 0, // Local transcription is free
       },
     };
   }
@@ -178,7 +189,10 @@ export class GroqTranscribeAudioRepo extends BaseTranscribeAudioRepo {
     const floatSamples = ensureFloat32Array(normalized);
     const wavBuffer = buildWaveFile(floatSamples, input.sampleRate);
 
-    const { text: transcript } = await groqTranscribeAudio({
+    // Calculate audio duration in milliseconds
+    const audioDurationMs = (input.samples.length / input.sampleRate) * 1000;
+
+    const result = await groqTranscribeAudio({
       apiKey: this.groqApiKey,
       model: this.model,
       blob: wavBuffer,
@@ -187,12 +201,23 @@ export class GroqTranscribeAudioRepo extends BaseTranscribeAudioRepo {
       language: input.language,
     });
 
+    // Calculate cost using Groq pricing
+    let costUsd: number | undefined;
+    const pricing = getTranscriptionPricing("groq", this.model);
+    if (pricing) {
+      costUsd = calculateAudioCost(audioDurationMs, pricing);
+    }
+
     return {
-      text: transcript,
+      text: result.text,
       metadata: {
         inferenceDevice: "API • Groq",
         modelSize: this.model,
         transcriptionMode: "api",
+        inputTokens: result.usage?.inputTokens,
+        outputTokens: result.usage?.outputTokens,
+        totalTokens: result.usage?.totalTokens,
+        costUsd,
       },
     };
   }
@@ -215,7 +240,10 @@ export class OpenAITranscribeAudioRepo extends BaseTranscribeAudioRepo {
     const floatSamples = ensureFloat32Array(normalized);
     const wavBuffer = buildWaveFile(floatSamples, input.sampleRate);
 
-    const { text: transcript } = await openaiTranscribeAudio({
+    // Calculate audio duration in milliseconds
+    const audioDurationMs = (input.samples.length / input.sampleRate) * 1000;
+
+    const result = await openaiTranscribeAudio({
       apiKey: this.openaiApiKey,
       model: this.model,
       blob: wavBuffer,
@@ -224,12 +252,23 @@ export class OpenAITranscribeAudioRepo extends BaseTranscribeAudioRepo {
       language: input.language,
     });
 
+    // Calculate cost using OpenAI pricing (per-minute)
+    let costUsd: number | undefined;
+    const pricing = getTranscriptionPricing("openai", this.model);
+    if (pricing) {
+      costUsd = calculateAudioCost(audioDurationMs, pricing);
+    }
+
     return {
-      text: transcript,
+      text: result.text,
       metadata: {
         inferenceDevice: "API • OpenAI",
         modelSize: this.model,
         transcriptionMode: "api",
+        inputTokens: result.usage?.inputTokens,
+        outputTokens: result.usage?.outputTokens,
+        totalTokens: result.usage?.totalTokens,
+        costUsd,
       },
     };
   }
@@ -250,19 +289,33 @@ export class AldeaTranscribeAudioRepo extends BaseTranscribeAudioRepo {
     const floatSamples = ensureFloat32Array(normalized);
     const wavBuffer = buildWaveFile(floatSamples, input.sampleRate);
 
-    const { text: transcript } = await aldeaTranscribeAudio({
+    // Calculate audio duration in milliseconds
+    const audioDurationMs = (input.samples.length / input.sampleRate) * 1000;
+
+    const result = await aldeaTranscribeAudio({
       apiKey: this.aldeaApiKey,
       blob: wavBuffer,
       ext: "wav",
       language: input.language,
     });
 
+    // Calculate cost using Aldea pricing (per-hour)
+    let costUsd: number | undefined;
+    const pricing = getTranscriptionPricing("aldea");
+    if (pricing) {
+      costUsd = calculateAudioCost(audioDurationMs, pricing);
+    }
+
     return {
-      text: transcript,
+      text: result.text,
       metadata: {
         inferenceDevice: "API • Aldea",
         modelSize: null,
         transcriptionMode: "api",
+        inputTokens: result.usage?.inputTokens,
+        outputTokens: result.usage?.outputTokens,
+        totalTokens: result.usage?.totalTokens,
+        costUsd,
       },
     };
   }

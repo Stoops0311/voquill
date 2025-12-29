@@ -30,6 +30,10 @@ export type TranscribeAudioMetadata = {
   transcriptionApiKeyId?: string | null;
   transcriptionMode?: TranscriptionMode | null;
   transcriptionDurationMs?: number | null;
+  // Token and cost tracking
+  transcriptionInputTokens?: number | null;
+  transcriptionOutputTokens?: number | null;
+  transcriptionCostUsd?: number | null;
 };
 
 export type TranscribeAudioResult = {
@@ -49,6 +53,10 @@ export type PostProcessMetadata = {
   postProcessMode?: PostProcessingMode | null;
   postProcessDevice?: string | null;
   postprocessDurationMs?: number | null;
+  // Token and cost tracking
+  postProcessingInputTokens?: number | null;
+  postProcessingOutputTokens?: number | null;
+  postProcessingCostUsd?: number | null;
 };
 
 export type PostProcessResult = {
@@ -109,6 +117,12 @@ export const transcribeAudio = async ({
   metadata.transcriptionApiKeyId = transcriptionApiKeyId;
   metadata.transcriptionMode =
     transcribeOutput.metadata?.transcriptionMode || null;
+  metadata.transcriptionInputTokens =
+    transcribeOutput.metadata?.inputTokens || null;
+  metadata.transcriptionOutputTokens =
+    transcribeOutput.metadata?.outputTokens || null;
+  metadata.transcriptionCostUsd =
+    transcribeOutput.metadata?.costUsd || null;
 
   return {
     rawTranscript,
@@ -191,6 +205,11 @@ export const postProcessTranscript = async ({
     metadata.postProcessApiKeyId = genApiKeyId;
     metadata.postProcessMode = genOutput.metadata?.postProcessingMode || null;
     metadata.postProcessDevice = genOutput.metadata?.inferenceDevice || null;
+    metadata.postProcessingInputTokens =
+      genOutput.metadata?.inputTokens || null;
+    metadata.postProcessingOutputTokens =
+      genOutput.metadata?.outputTokens || null;
+    metadata.postProcessingCostUsd = genOutput.metadata?.costUsd || null;
   } else {
     metadata.postProcessMode = "none";
   }

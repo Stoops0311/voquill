@@ -66,6 +66,13 @@ export const storeTranscription = async (
   const transcriptionFailed =
     input.rawTranscript === null && input.warnings.length > 0;
 
+  // Calculate total costs
+  const transcriptionCostUsd =
+    input.transcriptionMetadata.transcriptionCostUsd ?? 0;
+  const postProcessingCostUsd =
+    input.postProcessMetadata.postProcessingCostUsd ?? 0;
+  const totalCostUsd = transcriptionCostUsd + postProcessingCostUsd;
+
   const transcription: Transcription = {
     id: transcriptionId,
     transcript: !transcriptionFailed
@@ -92,6 +99,24 @@ export const storeTranscription = async (
     postprocessDurationMs:
       input.postProcessMetadata.postprocessDurationMs ?? null,
     warnings: input.warnings.length > 0 ? input.warnings : null,
+    // Token tracking
+    transcriptionInputTokens:
+      input.transcriptionMetadata.transcriptionInputTokens ?? null,
+    transcriptionOutputTokens:
+      input.transcriptionMetadata.transcriptionOutputTokens ?? null,
+    postProcessingInputTokens:
+      input.postProcessMetadata.postProcessingInputTokens ?? null,
+    postProcessingOutputTokens:
+      input.postProcessMetadata.postProcessingOutputTokens ?? null,
+    totalTokens:
+      (input.transcriptionMetadata.transcriptionInputTokens ?? 0) +
+        (input.transcriptionMetadata.transcriptionOutputTokens ?? 0) +
+        (input.postProcessMetadata.postProcessingInputTokens ?? 0) +
+        (input.postProcessMetadata.postProcessingOutputTokens ?? 0) || null,
+    // Cost tracking (USD)
+    transcriptionCostUsd: transcriptionCostUsd || null,
+    postProcessingCostUsd: postProcessingCostUsd || null,
+    totalCostUsd: totalCostUsd || null,
   };
 
   let storedTranscription: Transcription;
